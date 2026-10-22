@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { createApp } from '../src/app.ts'
+import { FakeAiClient, storyResult } from '../src/ai/fakeClient.ts'
+import { createApp as createAppWithDeps } from '../src/app.ts'
+import { MESSAGES } from '../src/messages.ts'
+
+const createApp = () => createAppWithDeps({ ai: new FakeAiClient(storyResult()) })
 
 describe('GET /api/health', () => {
   it('returns 200 { ok: true } as JSON', async () => {
@@ -43,7 +47,7 @@ describe('unknown routes', () => {
 })
 
 describe('unexpected errors', () => {
-  it('returns a generic JSON 500 and hides the error message', async () => {
+  it('returns a generic JSON 503 and hides the error message', async () => {
     const app = createApp()
     app.get('/boom', () => {
       throw new Error('DATABASE_URL=postgres://secret@host leaked')
@@ -52,8 +56,11 @@ describe('unexpected errors', () => {
     const res = await app.request('/api/boom')
     const text = await res.text()
 
-    expect(res.status).toBe(500)
-    expect(JSON.parse(text)).toEqual({ ok: false, kind: 'unavailable' })
+    expect(res.status).toBe(503)
+    const body = JSON.parse(text) as { ok: boolean; kind: string; message: string }
+    expect(body.ok).toBe(false)
+    expect(body.kind).toBe('unavailable')
+    expect(MESSAGES.unavailable).toContain(body.message)
     expect(text).not.toContain('secret')
     expect(text).not.toContain('DATABASE_URL')
   })
