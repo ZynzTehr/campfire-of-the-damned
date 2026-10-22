@@ -100,3 +100,16 @@ Local prompt history and build log for tracking iterations, model calls, decisio
 - **Action Taken:** Added a "Test doubles" table to `SPEC.md` §11: fakes for unit/route tests, recorded real Gemini responses for the adapter, a real Neon test branch for SQL and concurrency, a manual live eval, and smoke tests after deploy. Added a network tripwire so unit tests can't call real APIs. Added §15 Deployment: in-memory limits don't hold on Vercel (instances come and go), so all shared limits move to Neon in production, and the server refuses to start on Vercel with memory stores. Replaced `TRUST_PROXY` with `IP_SOURCE` (Vercel overwrites `x-real-ip`), disabled AI on preview deployments, set `maxDuration: 30` with a 25 s request deadline, and added security headers.
 - **Mistake caught in my own draft:** the first local-fallback plan said to demo new stories with Wi-Fi off, which can't work because Gemini is remote. Added `SEED_STORIES` so the offline fallback still serves real stories.
 
+---
+
+### Entry 9
+
+- **Timestamp:** 2026-10-22 10:48:09
+- **Prompt:**
+  > We could allow stories in a different language; we don't have to prohibit this. If there isn't enough time, we can keep it as a future feature. I don't think it should be that difficult to add, and it might even be more impressive to have that feature at the demo.
+  > Begin Phase 1.
+- **Goal:** Make story language a supported option without weakening the guardrails, then build the Phase 1 scaffold.
+- **Action Taken:**
+  - **Language:** added an optional `language` enum to `SPEC.md` (`en | es | fr | pt | de | it`, default `en`, Latin scripts only so the output check stays simple). The language is only ever chosen through this field, never inferred from the words, so typing "spanish" can't switch it. The "English only" output check became "matches the requested language". Fallback if time runs short: set the enum to `["en"]` and hide the picker.
+  - **Phase 1 (`phase-1-scaffold`):** Vite+ pnpm workspace with `apps/web` (React TS, Tailwind 4 for layout, custom CSS tokens, jsdom tests) and `apps/api` (Hono, strict TS, Node runs the `.ts` sources directly). Both apps have a network tripwire in test setup. Tests were written first and seen failing: web (one `h1`, no network on render) and API health (exact `{"ok":true}` body, JSON 404 for unknown routes, traversal paths, and wrong methods; a thrown error carrying a fake `DATABASE_URL` returns a generic 500 with no secret). Results: 11/11 tests green, `tsc` clean, live `curl` against the running server checked, `.env.example` committed with placeholders only, `.env` confirmed git-ignored, secret scan of the staged diff clean.
+- **Problems hit:** `vp create vite` hung on an interactive prompt, and `vp create --directory` refuses paths outside the current folder. Fixed by running `create-vite` non-interactively and then `vp migrate` from the workspace root.
