@@ -172,3 +172,43 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   3. A secrets test called `res.clone()` after the body was already read, so it failed for the wrong reason.
   4. The secret scan only covers tracked files, so new files are staged before scanning.
   5. In zsh, `$m:generateContent` is read as a variable modifier, which gave a fake 404 while comparing models. Fixed by writing `${m}`.
+
+---
+
+### Entry 13
+
+- **Timestamp:** 2026-10-22 13:24:49
+- **Prompt:**
+  > The flash model has 10 RPM, 250,000 TPM, and is typically capped at 1,500 RPD (resets at midnight Pacific time). Flash-lite shows 15 RPM, but not the others.
+- **Goal:** Use the real free-tier limits to choose the demo model and set the app-wide caps, then build Phase 4 (the cost cap, SPEC §8).
+- **Action Taken:**
+  - **Model:** checked latency again before switching. Flash-lite had recovered (0.76 s, against 1.0 s for flash), so the 9–21 s calls were a temporary slowdown on Google's side. Kept flash-lite: higher RPM, lower cost, and the prompt was tuned on it. Switching is one line (`GEMINI_MODEL`, plus `APP_RPM_CAP=8` for flash).
+  - **Caps:** `APP_RPM_CAP=12` (80% of 15) and `APP_RPD_CAP=1000` (under flash's ~1,500; flash-lite's RPD isn't shown, so I assumed it is no lower). App-wide caps count AI calls, not requests, because a retry uses Google quota too.
+  - **Built:**
+    - `config.ts`: fail-closed config. Every cost setting must be present, a plain number, above 0 and under a ceiling. All problems are reported by name and never with a value.
+    - `limits/store.ts`: an atomic memory store.
+    - `limits/costGate.ts`: kill switch, prompt ceiling, per-IP and app-wide limits, concurrency leases, and worst-case reservation reconciled from usage metadata, with Pacific-day budgets in micro-dollars. Cache-only "resting" mode, 429 with `Retry-After`, and per-call cost logs with 80% warnings.
+  - **Tests:** 423 green plus `tsc`. 65 config tests. Cost tests include a parallel-overshoot test (20 concurrent requests; only the 3 that fit the budget reach the AI) and a concurrency peak test. 14 cost-layer mutations were all caught.
+  - **Live:**
+    - The server refused to start with the old `.env`, listing 16 missing settings by name.
+    - 5 real stories took 1.0–2.5 s each and cost **$0.000426–0.000484** each (527 tokens in, 107–130 out).
+    - The 6th request from the same IP got a 429 in 1.5 ms with "Come back in 53 seconds".
+    - `AI_ENABLED=false` returned the resting message with no AI call.
+- **Decision:** on a timeout or network error the reservation keeps the worst case (Google may have billed it). On an error status it is released. This refines SPEC §8.2, which said "release on failure".
+- **Mistakes caught in my own work:**
+  1. With the SPEC default `MAX_PROMPT_TOKENS=600`, every call would have been refused (the chars ÷ 3 estimate of the real prompt is ~690). Found by measuring before writing code.
+  2. A constructor with TypeScript parameter properties passed every test, but `tsc` showed that Node, which runs our `.ts` by stripping types, would have crashed at startup. Changed to plain fields.
+  3. The "no daily $ check" mutation survived: every dollar test set daily = monthly, so the monthly check covered for it. Separated the caps in two tests.
+  4. **Repeated a Phase 2 mistake:** I piped the mutation script into `head`, which killed it partway through and left a mutation ("no reconcile") in `store.ts`, so the suite went red. Restored the line and made both mutation scripts restore files on INT/TERM/PIPE/HUP too. Rule: never pipe a script that modifies files.
+  5. The overshoot test expected 17 "resting" refusals and got 7 resting plus 10 "busy" (concurrency). The behavior was correct (3 calls, spend under the cap); the expectation was wrong.
+
+---
+
+### Entry 14
+
+- **Timestamp:** 2026-10-22 14:10:10
+- **Prompt:**
+  > It seemed like you were stuck in a loop, so I stopped the process. Continue and tell me what went wrong.
+- **Goal:** Explain the stall and continue Phase 4.
+- **What went wrong:** it wasn't a loop. A single file-write tool call hung: the file reached the disk at 13:33 and was complete, but the editor never reported back, so I waited until the cancel at 14:09. An earlier small write had taken 5 minutes the same way. The hang was in the IDE's step after writing (diff or format), not in the code or the repo. Nothing was lost or run twice.
+- **Action Taken:** checked the file was intact, then switched to writing files with shell heredocs and `perl` edits for the rest of Phase 4. There were no further stalls.
