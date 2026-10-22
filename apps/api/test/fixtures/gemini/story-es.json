@@ -1,0 +1,34 @@
+{
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "parts": [
+            {
+              "text": "{\n  \"title\": \"La Sombra del Cuervo\",\n  \"body\": \"El guardián caminaba por el cementerio cubierto de niebla, sosteniendo una vieja linterna que apenas iluminaba los nombres borrados en las lápidas. Un cuervo negro lo observaba desde la reja de hierro, graznando con una urgencia antinatural. Cuando la luz de aceite parpadeó y murió por completo, sintió garras frías posarse suavemente sobre su hombro.\",\n  \"spookFactor\": 4,\n  \"tampering\": false,\n  \"ingredients\": [\n    \"cuervo\",\n    \"linterna\"\n  ]\n}",
+              "thoughtSignature": "EmAKXgFpFH0T+9dSS6Ok/X6AWJifOTrGVlLPXhYbVCSAzjQ1W8aKiYNDH33jPIwFpHsfyrJz+Q05oNMY1P+de83NUCRXgQEz0gE2by7rkmrQ3Q3UvEKLr7o3Em9bLTDsi3g="
+            }
+          ],
+          "role": "model"
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 460,
+      "candidatesTokenCount": 150,
+      "totalTokenCount": 610,
+      "promptTokensDetails": [
+        {
+          "modality": "TEXT",
+          "tokenCount": 460
+        }
+      ],
+      "serviceTier": "standard"
+    },
+    "modelVersion": "gemini-3.5-flash-lite",
+    "responseId": "MVvaarOwI-LUz7IPrtvuyAs"
+  }
+}
