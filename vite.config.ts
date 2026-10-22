@@ -8,6 +8,8 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   run: {
-    cache: true,
+    // Off on purpose: the cache replayed a stale `tsc` pass after new files
+    // were added under src/. A false green is worse than a slower run.
+    cache: false,
   },
 });
