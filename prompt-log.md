@@ -65,3 +65,15 @@ Local prompt history and build log for tracking iterations, model calls, decisio
 - **Goal:** Lock the stack, pick the AI provider, define phases and branches, and write a spec covering guardrails, threat model, and test plan.
 - **Action Taken:** Created `SPEC.md` (stack: Vite+ / React TS / Tailwind 4 layout + custom CSS / Hono API / Zod / Gemini / Neon). Recommended Gemini Flash-Lite with the model id kept in an env var. Wrote an effort-vs-reward threat model and an attack-first test plan. Made the initial commit on `main` and created seven phase branches.
 
+---
+
+### Entry 6
+
+- **Timestamp:** 2026-10-22 10:15:19
+- **Prompt:**
+  > 1. Gemini, so that we have free usage. If we hit rate limits on a key, we can generate a new one for the demo. We should be fine; I think we have 15 requests per minute on the Gemini free tier?
+  > 2. 3–5 sentences feels better. Let's create guardrails for our app with a paid AI API in mind, so that if we move to a paid service in the future there are no runaway costs.
+  > 3. Yes.
+- **Goal:** Record the decisions and make the cost cap safe for a paid API.
+- **Action Taken:** Updated `SPEC.md`. Corrected two assumptions: free-tier limits are per project and per model and change over time, so read them from AI Studio instead of assuming 15 RPM; a new key in the same project shares the same quota. Rewrote the cost cap as 11 layers: kill switch, prompt and output token caps, per-IP and app-wide limits, concurrency cap, max 2 attempts per request, daily call cap, daily/monthly dollar caps with reservation before each call, and fail-closed config validation. Added shadow-cost tracking on the free tier, parallel-overshoot tests, and a Neon usage schema with atomic reservation. Resolved the open questions.
+

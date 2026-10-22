@@ -34,7 +34,7 @@
 | **Input guardrail** | Strict schema: `setting` is an enum, `words` is 1–3 items, each 1–24 letters/digits/hyphen/apostrophe after Unicode normalization. Body capped at 1 KB. Injection heuristics reject with a cheeky message. |
 | **Output guardrail** | Structured JSON output, validated again on our side: schema, sentence count, length, every word used, no URLs/HTML, no leaked system prompt (canary check), not too similar to recent stories. One regeneration, then fallback. |
 | **Failure guardrail** | 10 s timeout, one retry on 5xx/timeout only, never retry 429. Any AI or DB failure returns a polite in-world message (HTTP 503) and never leaks upstream error text. DB down → generate without cache. AI down → serve an unseen cached story if one exists. |
-| **Cost cap** | Input capped (1 KB body, 3 short words), `maxOutputTokens` capped, thinking disabled/minimal, per-IP rate limit, and a global daily AI-call budget. Cache hits cost $0. Rough cost: see [§8](#8-cost-cap). |
+| **Cost cap** | Built as if the API were paid, even though the demo runs on the free tier. Input and output token caps, per-IP and app-wide rate limits, at most 3 AI calls in flight, at most 2 billable attempts per request, and daily + monthly **dollar** caps computed from real token usage. Budget is reserved before each call so parallel requests can't overshoot. Bad or missing cap config stops the server from starting. When a cap is hit, the app serves cached stories only. Kill switch: `AI_ENABLED=false`. See [§8](#8-cost-cap). |
 
 ---
 
@@ -50,7 +50,7 @@
 | Validation | **Zod** | One schema shared by request validation and AI output validation. |
 | AI SDK | **`@google/genai`** | Official Gemini JS SDK. Model id comes from env. |
 | Database | **Neon Postgres** + `pg_trgm` | Story cache, seen-tracking, daily usage. Driver: `@neondatabase/serverless` (or `pg`). |
-| Secrets | `.env` (git-ignored) + committed `.env.example` | `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, `ALLOWED_ORIGIN`, `DAILY_AI_CALL_BUDGET`. |
+| Secrets | `.env` (git-ignored) + committed `.env.example` | `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, `ALLOWED_ORIGIN`, plus the cost settings in [§8](#8-cost-cap). |
 
 ### Repo layout (target)
 
@@ -78,7 +78,7 @@
 
 ## 3. AI provider decision
 
-**Use Gemini.** It's good enough for this, and the guardrails cover the cases where it isn't.
+**Decision: Gemini, free tier for the demo.** It's good enough for this, and the guardrails cover the cases where it isn't. Cost guardrails are built for a paid tier anyway (see [§8](#8-cost-cap)), so switching to a paid key later can't cause runaway costs.
 
 Why:
 - Has a free tier through Google AI Studio (no card required), and the paid Flash-Lite tier is cheap.
@@ -87,7 +87,8 @@ Why:
 
 Caveats to know before the demo:
 - **Free tier data may be used by Google to improve its models.** Fine for spooky stories; never send personal data.
-- **Free tier rate limits are per project and change.** Check yours at AI Studio's rate-limit page. Expect 429s under load; the failure guardrail handles them.
+- **Free tier rate limits are set per Google Cloud project and per model, and they change.** Don't rely on a remembered number (e.g. "15 RPM"). Read the real requests/minute, tokens/minute, and requests/day for our model on AI Studio's rate-limit page and copy them into `.env`. The app's own app-wide limit sits *below* them, so users hit our friendly limit before Google's 429.
+- **A new API key in the same project shares that project's quota.** Generating another key won't reset the limit. A backup key only helps if it belongs to a different project; check Google's terms before relying on that.
 - **Model ids change.** Keep the model in `GEMINI_MODEL`, confirm the current Flash-Lite / Flash id in AI Studio, and don't hardcode it.
 - On "thinking" models, thinking tokens bill as output. Set the thinking budget to the minimum the model allows.
 
@@ -222,7 +223,7 @@ On failure: regenerate once with the same input. On second failure: fallback (un
 | 429 from Gemini | No retry. Fallback. |
 | 401/403 (bad key) | No retry. Fallback. Log loudly server-side. |
 | Network error | Retry once, then fallback |
-| DB unreachable | Skip cache and seen-tracking, still call AI (budget enforced in memory for the process) |
+| DB unreachable | Skip cache and seen-tracking. The real budget can't be checked, so AI calls continue only under a small in-memory cap (`DEGRADED_AI_CALLS_PER_HOUR`, default 20). Fail closed, never open. |
 | AI and DB both down | 503 unavailable with polite message |
 | Unexpected exception | Caught by a top-level handler → 503 unavailable, generic message |
 
@@ -230,22 +231,76 @@ On failure: regenerate once with the same input. On second failure: fallback (un
 
 ## 8. Cost cap
 
-Controls:
-- Input: body ≤ 1 KB, ≤ 3 words × 24 chars. The system prompt plus user turn is roughly 300–450 input tokens.
-- Output: `maxOutputTokens: 300`; a story is ~100–180 tokens.
-- Thinking set to minimum (thinking tokens bill as output).
-- Per-IP rate limit: 5 stories/minute, 30/hour (in-memory sliding window; single-instance limitation documented).
-- Global `DAILY_AI_CALL_BUDGET` (default 500). When exhausted: serve cache only.
-- Cache hits cost $0.
+Design goal: **switching `GEMINI_API_KEY` to a paid key must not be able to produce a surprise bill.** Every cap below applies on the free tier too. On the free tier we track a *shadow cost* (what the calls would have cost on paid pricing), so the dollar caps get exercised and tested now.
 
-Rough cost per AI call (paid tier, prices from Google's pricing page as of Oct 2026, **verify before the demo**):
+### 8.1 Layers (cheapest check first)
 
-| Model | Input $/1M | Output $/1M | ~450 in + ~200 out | 500 calls/day |
-| --- | --- | --- | --- | --- |
-| Flash-Lite | ~$0.25–0.30 | ~$1.50–2.50 | ~$0.0005 | ~$0.25 |
-| Flash (promo through Dec 31, 2026) | ~$0.75 | ~$3.75 | ~$0.0011 | ~$0.55 |
+| # | Layer | What it stops | Default |
+| --- | --- | --- | --- |
+| 1 | **Kill switch** `AI_ENABLED` | Everything, instantly | `true` |
+| 2 | **Input caps**: body ≤ 1 KB, ≤ 3 words × 24 chars | Huge prompts | fixed |
+| 3 | **Prompt token ceiling** `MAX_PROMPT_TOKENS`: estimate tokens (chars ÷ 3, rounded up) before calling; refuse if over | Prompt growth from code changes (e.g. AVOID list getting long) | 600 |
+| 4 | **Output cap** `MAX_OUTPUT_TOKENS` on every call; thinking at the minimum the model allows | Long or runaway outputs, hidden thinking spend | 300 |
+| 5 | **Per-IP rate limit** (sliding window) | One user hammering | 5/min, 30/hour |
+| 6 | **App-wide rate limit** `APP_RPM_CAP`, `APP_RPD_CAP`: set below the provider's limits | Many users at once; hitting Google's 429 | set from AI Studio values minus ~20% |
+| 7 | **Concurrency cap** `MAX_CONCURRENT_AI_CALLS` | Bursts that slip past per-minute windows | 3 |
+| 8 | **Attempts per request**: 1 call + at most 1 more (retry *or* regeneration, not both) | Retry/regenerate loops | 2, hard-coded |
+| 9 | **Daily call cap** `DAILY_AI_CALL_CAP` | Backstop if price config is wrong | 500 |
+| 10 | **Daily + monthly dollar caps** `DAILY_USD_CAP`, `MONTHLY_USD_CAP` | The actual bill | $1.00 / $10.00 |
+| 11 | **Cache** | Paying twice for the same input | hits cost $0 |
 
-On the free tier the dollar cost is $0. The limiting factor is the rate limit, not money. A regeneration (output guard failure) doubles the cost of that request; worst case is 2 calls per request.
+When layers 6, 9, or 10 trip: **cache-only mode** (serve an unseen cached story, else a themed "the spirits are resting" message). Log a warning at 80% of any daily/monthly cap.
+
+### 8.2 Budget reservation (stops parallel overshoot)
+
+Checking the budget *after* a call lets 20 parallel requests all pass a check that only one of them should pass. So:
+
+1. Before the call, **reserve** the worst-case cost: `MAX_PROMPT_TOKENS × input price + MAX_OUTPUT_TOKENS × output price`.
+2. If `spent + reserved + this reservation > cap`, don't call.
+3. After the call, **reconcile**: replace the reservation with the real cost from the response's usage metadata (input, output, and thinking tokens).
+4. If the call fails, release the reservation. If the response has no usage metadata, keep the worst-case charge.
+
+Phase 4 implements this with an in-memory store behind a `BudgetStore` interface. Phase 5 adds a Neon store so the budget survives restarts. Until then, a restart resets the in-memory budget (documented limitation).
+
+### 8.3 Fail-closed config
+
+The server **refuses to start** if any cost setting is missing, not a number, ≤ 0, or above a sanity ceiling (`DAILY_USD_CAP > 25`, `MONTHLY_USD_CAP > 100`, `MAX_OUTPUT_TOKENS > 1024`, `MAX_CONCURRENT_AI_CALLS > 10`). Prices must be set even on the free tier (use the paid prices for shadow cost). A typo should stop the app, not remove a limit.
+
+### 8.4 Settings (`.env.example`)
+
+```
+AI_ENABLED=true
+GEMINI_MODEL=                 # confirm current Flash-Lite id in AI Studio
+PRICE_INPUT_PER_M_USD=0.30    # paid price, used for shadow cost on free tier
+PRICE_OUTPUT_PER_M_USD=2.50
+MAX_PROMPT_TOKENS=600
+MAX_OUTPUT_TOKENS=300
+MAX_CONCURRENT_AI_CALLS=3
+APP_RPM_CAP=                  # ~80% of provider RPM from AI Studio
+APP_RPD_CAP=                  # ~80% of provider RPD from AI Studio
+PER_IP_PER_MINUTE=5
+PER_IP_PER_HOUR=30
+DAILY_AI_CALL_CAP=500
+DAILY_USD_CAP=1.00
+MONTHLY_USD_CAP=10.00
+DEGRADED_AI_CALLS_PER_HOUR=20
+TRUST_PROXY=false
+```
+
+### 8.5 Outside the code (before any paid key)
+
+- Restrict the API key to the Generative Language API only.
+- Separate keys for dev and demo; never reuse a key that was ever pasted anywhere.
+- Set a Google Cloud **budget alert**. Note: budget alerts notify you; they don't stop spending by default. The in-app caps are the real stop.
+
+### 8.6 Rough cost (paid tier, prices from a web search of Google's pricing as of Oct 2026, **verify on Google's pricing page**)
+
+| Model | Input $/1M | Output $/1M | Typical call (~450 in + ~200 out) | Worst-case call (600 in + 300 out) | Worst-case request (2 calls) |
+| --- | --- | --- | --- | --- | --- |
+| Flash-Lite | ~$0.25–0.30 | ~$1.50–2.50 | ~$0.0006 | ~$0.0009 | ~$0.0019 |
+| Flash (promo through Dec 31, 2026) | ~$0.75 | ~$3.75 | ~$0.0011 | ~$0.0016 | ~$0.0032 |
+
+With the defaults, the most a paid key can cost is **$1/day and $10/month**, regardless of traffic or bugs in the retry logic. On the free tier the real cost is $0; the limit that matters is Google's rate limit, which our app-wide cap stays under.
 
 ---
 
@@ -283,11 +338,16 @@ CREATE TABLE story_views (
 );
 
 CREATE TABLE ai_usage (
-  day           date PRIMARY KEY,
-  calls         int NOT NULL DEFAULT 0,
-  input_tokens  bigint NOT NULL DEFAULT 0,
-  output_tokens bigint NOT NULL DEFAULT 0
+  day             date PRIMARY KEY,
+  calls           int NOT NULL DEFAULT 0,
+  input_tokens    bigint NOT NULL DEFAULT 0,
+  output_tokens   bigint NOT NULL DEFAULT 0,  -- includes thinking tokens
+  cost_usd        numeric(12,6) NOT NULL DEFAULT 0,  -- actual (reconciled)
+  reserved_usd    numeric(12,6) NOT NULL DEFAULT 0   -- in-flight reservations
 );
+-- Monthly spend = SUM(cost_usd + reserved_usd) for the current month.
+-- Reserve/reconcile in a single UPDATE ... WHERE cost_usd + reserved_usd + $1 <= $cap RETURNING,
+-- so the check and the write are atomic across server instances.
 ```
 
 ### Rules
@@ -309,7 +369,8 @@ The app has no accounts, no payments, no private data. The only assets are: **th
 | Attack | Attacker effort | Attacker reward | Our risk | Defense |
 | --- | --- | --- | --- | --- |
 | Steal the API key | High (needs server/repo access) | High (free AI on our bill) | High | Key only in server env; never in frontend bundle, responses, logs, or git. Test asserts no response ever contains it. Secret scan before push. |
-| Denial of wallet (spam requests) | Very low (a loop) | Low (nuisance) | Medium (burns quota/money) | Rate limit, daily budget, cache, output token cap. |
+| Denial of wallet (spam requests) | Very low (a loop) | Low (nuisance) | Medium now, **high on a paid key** | All 11 layers in §8: per-IP + app-wide limits, concurrency cap, reserved dollar caps, cache. |
+| Rotate IPs to dodge per-IP limits | Medium | Low | Medium | App-wide RPM/RPD caps and dollar caps don't care how many IPs there are. |
 | Rate-limit bypass via spoofed `X-Forwarded-For` | Low | Low | Medium | Only trust proxy headers when `TRUST_PROXY=true`; tested. |
 | Prompt injection to get free general-purpose LLM | Low | Low (3 words of 24 chars is a useless pipe) | Low | Schema shape kills most of it; heuristics + system prompt rule 5 + output schema. |
 | Prompt injection to make the app say something offensive (screenshot for laughs) | Medium | Medium (reputation) | **Medium-high for a demo** | Input blocklist, model safety settings, output checks, PG-13 rule. This is the one to attack hardest in tests. |
@@ -345,7 +406,18 @@ Tool: `vp test` (Vitest). Write the failing test first, then the code. Tests imp
    - Assert: regenerates once, then falls back; nothing bad is cached; nothing bad reaches the response.
 4. **Failure suite** (fake AI/store): timeout, 5xx then success (retry works), 5xx twice, 429 (no retry), 401, network error, DB down on read, DB down on write, both down, thrown exception. Assert status, `kind`, message, and that no upstream text leaks.
 5. **Secrets tests:** run every failure path with a known fake key in env; assert no response body or log line contains it.
-6. **Cost tests:** rate limit triggers at the configured count; `X-Forwarded-For` ignored unless `TRUST_PROXY`; daily budget exhaustion switches to cache-only; `maxOutputTokens` is set on every call; prompt size stays under a fixed token estimate.
+6. **Cost tests:**
+   - Per-IP limit trips at the configured count; `X-Forwarded-For` is ignored unless `TRUST_PROXY=true`.
+   - App-wide RPM/RPD caps trip regardless of how many distinct IPs send requests.
+   - **Parallel overshoot:** fire 50 concurrent requests with a budget that allows 3 worst-case calls; assert at most 3 AI calls happen.
+   - Concurrency cap: with a slow fake AI, never more than `MAX_CONCURRENT_AI_CALLS` in flight.
+   - A request never makes more than 2 AI calls, across every combination of timeout/5xx/bad-output.
+   - Reservation is released on failure and reconciled to real usage on success; missing usage metadata keeps the worst-case charge.
+   - Daily and monthly dollar caps each switch to cache-only; daily call cap does too, even when prices are set absurdly low.
+   - `AI_ENABLED=false` → zero AI calls.
+   - Prompt over `MAX_PROMPT_TOKENS` is refused before calling; `maxOutputTokens` is set on every call.
+   - Config validation: missing, non-numeric, zero, negative, and above-ceiling values each stop startup.
+   - DB down → degraded hourly cap applies (fail closed).
 7. **Cache tests:** same input + new client → cache hit with no AI call; same input + client who saw it → AI call; unseen-story selection; only guarded stories are stored.
 8. **Frontend tests:** each `kind` renders the right message style; story renders as text (an HTML payload shows up as literal text); retry button; reduced-motion respected.
 9. **Live eval (manual, not in CI):** `vp run eval` calls the real model ~20 times across settings and words, records pass rate per output check, tokens, and a sample for human judging. This is how we "judge output quality, not just that it ran."
@@ -403,7 +475,7 @@ Inside each phase, follow the build loop: **ask → review the diff → accept �
 | 1 | `phase-1-scaffold` | Vite+ workspace with `apps/api` and `apps/web`; TypeScript strict; `vp test` runs a trivial test in both; `.env.example`; `.gitignore` covers `.env`, `dist`, `coverage`; health route. | `vp test` green, `git status` shows no secrets. |
 | 2 | `phase-2-ai-call` | Gemini client behind an interface, system prompt in code, structured output, `POST /api/story` happy path. Fake client for tests. Judge 5–10 real outputs. | A real story comes back from curl; tests green; committed **before** any guardrails. |
 | 3 | `phase-3-guardrails` | Input guard, output guard, failure handling, messages, top-level error handler. Attack suites from §11 written first. | All three guard suites green; manual break attempts logged in prompt-log. |
-| 4 | `phase-4-cost-cap` | Rate limit, daily budget, token caps, rough cost measured from real usage metadata. | Cost tests green; cost per call recorded in this spec. |
+| 4 | `phase-4-cost-cap` | All §8 layers with an in-memory `BudgetStore`: config validation, kill switch, token caps, per-IP + app-wide limits, concurrency cap, reservation/reconcile, dollar + call caps, cache-only mode. Real cost measured from usage metadata. | Cost tests green (incl. parallel overshoot); measured cost per call recorded in this spec. |
 | 5 | `phase-5-cache` | Neon project/branch, migrations, Neon store + memory store, seen-tracking, AVOID list, near-duplicate check. | Cache tests green against memory store and a Neon test branch. |
 | 6 | `phase-6-frontend` | Immersive UI per §12, error states per §13, frontend tests. | Full flow works in browser, every error kind demoed by hand. |
 | 7 | `phase-7-demo` | README (setup, data flow, failure mode, guardrails, cost), demo script, final secret scan, push to GitHub. | Control checklist in requirements.md all ticked. |
@@ -414,8 +486,9 @@ Inside each phase, follow the build loop: **ask → review the diff → accept �
 
 ## 15. Open questions
 
-- [ ] Final app name.
-- [ ] Final list of settings (6 proposed in §5).
-- [ ] Gemini: free tier or paid key for the demo? (Free tier risks 429 mid-demo; the fallback handles it, but it's less impressive.)
+- [x] Final app name: **Campfire of the Damned**.
+- [x] Final list of settings: the 6 in §5.
+- [x] Gemini free tier for the demo; cost guardrails built for paid (§8).
+- [x] Story length: 3–5 sentences.
 - [ ] Hosting for the demo: local only, or deploy (e.g. API + web on one host)?
-- [ ] Story length: 3–5 sentences OK, or stricter 2-sentence horror format?
+- [ ] Copy the real free-tier RPM/RPD for our model from AI Studio into `.env` (Phase 4).
