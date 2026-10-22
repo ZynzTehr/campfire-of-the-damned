@@ -150,3 +150,25 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   1. I piped the secret scan through `tail`, which hid its failing exit code, so a commit with a key-shaped fake test key went through. Renamed the fake key and amended the unpushed commit. Gating commands are no longer piped.
   2. The `vp run` task cache replayed a stale "typecheck passed" after new files were added. I turned the cache off and proved `tsc` now catches a deliberately planted type error.
   3. I wrote the prompt module before running its tests red, so I checked them by mutation instead: removing the sort made 2 tests fail.
+
+---
+
+### Entry 12
+
+- **Timestamp:** 2026-10-22 13:11:00
+- **Prompt:**
+  > Push to GitHub. Begin Phase 3.
+- **Goal:** Add the three guardrail layers (input, output, failure) with attack-first tests, prove each guard is load-bearing, try to break the live app by hand, and record any deviations from the spec.
+- **Action Taken:**
+  - **Input guard** (`guards/input.ts`): 1 KB body cap (413), JSON only (415), a strict shape check, and word normalization (NFKC, invisible characters stripped, curly apostrophes straightened). It then checks markup, steering words, and steering phrases (in typed **and** sorted order), Cyrillic/Greek look-alikes folded for matching, and a profanity list, and only then the word regex.
+  - **Output guard** (`guards/output.ts`): finish reason, schema, the model's own tampering flag, markup, prompt and canary leak, prose format, requested language, 3–5 sentences, ingredients used, in character and third person. Real Phase 2 stories are fixtures: the good ones must pass, and the real French and German first-person drift must fail.
+  - **Failure handling** (`app.ts`): at most 2 AI calls per request, shared between retry and regeneration. Retries only on timeout, 5xx (with 200–600 ms jitter), or network errors; never on 429 or auth errors. Tampering is rejected and not regenerated. 25 s request deadline. Logs carry only kinds and reasons. Per-attempt timeout raised from 10 s to 12 s.
+  - **Tests:** 334 green, plus `tsc`. A mutation script broke 9 guards one at a time (sorted-phrase check, confusable fold, invisible-character strip, markup reject, quote stripping, attempt cap, retry on 429, regenerate on tampering, deadline race); each made real assertions fail.
+  - **Manual break attempts against the live server:** "ignore previous instructions", a zero-width `ig​nore`, Cyrillic `іgnоrе`, "act as", sorted `as`/`act`/`dan`, `</INGREDIENTS>`, an extra `system` field, a 2 KB body, text/plain, broken JSON, and GET all got the right 400/413/415/404 with no AI call. Legit English stories and `don't`/`jack-o'-lantern` got 200.
+- **Found live:** `gemini-3.5-flash-lite` is very slow right now: 9–21 s even for "say hi" (all model time; connect is 0.04 s). Every story timed out, and the app correctly retried once and returned a polite 503 inside the deadline. `gemini-3.5-flash` answered in about 1 s but hit free-tier 429s after a handful of calls (no retry, as designed), and once returned 5xx twice (retried, then 503). All three failure paths were seen working against the real API.
+- **Mistakes caught in my own work:**
+  1. The default fake story ("teacup, lullaby, rust") failed the new ingredients check for any other words, so 20+ tests returned 503. Added a fake that writes its story from the request's own words.
+  2. **Real bug:** after a timeout at the deadline, the retry got an already-aborted signal. Its abort event never fires, so the request hung forever. Fixed by never starting an attempt past the deadline and racing each call against it. Added a test for a client that ignores its signal.
+  3. A secrets test called `res.clone()` after the body was already read, so it failed for the wrong reason.
+  4. The secret scan only covers tracked files, so new files are staged before scanning.
+  5. In zsh, `$m:generateContent` is read as a variable modifier, which gave a fake 404 while comparing models. Fixed by writing `${m}`.
