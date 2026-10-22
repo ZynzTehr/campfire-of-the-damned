@@ -11,6 +11,8 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@fontsource/alegreya-sans": "catalog:",
+    "@fontsource/im-fell-english": "catalog:",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

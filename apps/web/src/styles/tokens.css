@@ -1,11 +1,29 @@
-/* Design tokens. Phase 6 expands these into the full campfire theme. */
+/* Design tokens: a forest clearing at night, lit by one fire (SPEC §12). */
 :root {
-  --color-night: hsl(260 30% 6%);
-  --color-ember: hsl(24 95% 55%);
-  --color-flame: hsl(38 100% 62%);
-  --color-bone: hsl(40 30% 88%);
-  --color-ash: hsl(260 8% 60%);
+  --color-night: #0e1a1f;
+  --color-night-deep: #071014;
+  --color-ember: #e8742b;
+  --color-ember-deep: #9b2d14;
+  --color-flame: #ffc65c;
+  --color-bone: #e8dcc4;
+  --color-bone-dim: rgb(232 220 196 / 0.72);
+  --color-smoke: #5e6b6e;
+  --color-ghost: #8fb7b0;
+  --color-blood: #e0684e;
 
-  --font-display: 'Georgia', 'Times New Roman', serif;
-  --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --line: rgb(232 220 196 / 0.14);
+  --line-strong: rgb(232 220 196 / 0.28);
+  --panel: rgb(10 18 22 / 0.62);
+
+  --font-display: 'IM Fell English', 'Iowan Old Style', Georgia, serif;
+  --font-body: 'Alegreya Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Registered so the sky can fade between settings instead of snapping. */
+@property --hue {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 32;
 }
