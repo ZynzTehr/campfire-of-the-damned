@@ -57,7 +57,7 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   > - Let's use React TypeScript, Tailwind 4.0 for scaffolding, and custom CSS for styles.
   > - I have Neon; we can use that.
   > - What AI API should we use? I want something reliable but cheap or free. Would Gemini be good enough for this?
-  > - Let's break this down into phases: backend first, then testing, and the frontend last.
+  > - Let's break this down into phases: backend first, then testing, and the frontend towards the end.
   > - Create a branch for each phase; we'll work on a single phase at a time.
   > - The frontend should be very expressive and very immersive. Users should get a polite message when the connection to the API breaks (AI or backend). Since we're protecting ourselves from prompt injection and other ways to abuse our system, I want a cheeky message sent back to the user to let them know they're doing something they're not supposed to.
   > - TDD should be a high priority. Consider attack vectors and edge cases; let's not just test for things that would pass based on what we created. Consider the effort necessary to break or compromise our system versus the reward to potential attackers.
@@ -212,3 +212,28 @@ Local prompt history and build log for tracking iterations, model calls, decisio
 - **Goal:** Explain the stall and continue Phase 4.
 - **What went wrong:** it wasn't a loop. A single file-write tool call hung: the file reached the disk at 13:33 and was complete, but the editor never reported back, so I waited until the cancel at 14:09. An earlier small write had taken 5 minutes the same way. The hang was in the IDE's step after writing (diff or format), not in the code or the repo. Nothing was lost or run twice.
 - **Action Taken:** checked the file was intact, then switched to writing files with shell heredocs and `perl` edits for the rest of Phase 4. There were no further stalls.
+
+---
+
+### Entry 15
+
+- **Timestamp:** 2026-10-22 15:14:30
+- **Prompt:**
+  > Push to GitHub. Begin Phase 6.
+- **Goal:** Push Phases 3–4, then build the frontend (SPEC §12): an immersive campfire scene where every API outcome looks different, without weakening anything the backend guarantees.
+- **Action Taken:**
+  - **Push:** secret scan clean, then `main` (Phases 1–4, `00adb03`) pushed to GitHub. Started branch `phase-6-frontend`.
+  - **Design plan** (frontend-design skill): the fire is the one bold element and reacts to every state, with five moods: idle, flare (waiting), dim (unavailable/offline), cold (rejected: teal flame, an eye glances about), smoulder (rate-limited: hourglass and live countdown). Night-forest palette tinted by the chosen setting. IM Fell English for the story, Alegreya Sans for controls. One centered column. Avoided all-caps labels, arrow buttons and a SaaS card grid.
+  - **Built:**
+    - `api.ts`: one `requestStory()` that turns every response into a typed outcome (`story | invalid | rejected | unavailable | rate_limited | offline`). It parses defensively and never shows raw server text.
+    - `catalog.ts`: settings, languages and the word rule, with a test that fails if they drift from the API's lists.
+    - `hooks.ts`: reduced motion, countdown, typewriter, pause-when-hidden, stable client id.
+    - Components: `Fire`, `Tale` (live region plus typed copy), `SoundToggle` (generated crackle, off by default), `Treeline`, glyphs.
+    - `styles/tokens.css` and `styles/app.css`: all visuals. Fonts are self-hosted via Fontsource, so no third-party font requests.
+  - **Tests:** 44 web tests. They cover each outcome's message and mood, the countdown, client-side word checks, reduced motion and the network tripwire, and that only filled words are sent. Production build and `tsc -b` clean.
+  - **Live check in a real browser:** real story at desktop; rejected state ("Clever. Not clever enough. Three honest words, please." with a teal fire); invalid caught client-side with no request; mobile 390 px layout.
+- **Mistakes caught in my own work:**
+  1. **Countdown bug:** after a 429 the fire went straight back to idle instead of smouldering. The countdown hook still held the previous wait's `0` for one render, and the "wait is over" effect fired on it. A test caught it. Fixed by making the hook remember which wait its state belongs to.
+  2. `tsc -b` failed on the test file (untyped `vi.fn` made `mock.calls` an empty tuple) even though every test passed. Vitest doesn't type-check, so the build is part of the gate.
+  3. First screenshots: the forest and fog sat at the bottom of the long page, behind the form, so they were invisible at the top. Made the scene layers `fixed`. The moon rendered as a grey smudge (removed), and the far trees came out lighter than the sky (darkened).
+  4. A browser subagent was pointed at port 5173, which was another of the user's apps. Moved this app to 5180 instead of stopping it.
