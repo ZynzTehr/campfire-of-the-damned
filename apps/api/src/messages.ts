@@ -12,6 +12,8 @@ export const MESSAGES = {
     'The fire has gone cold for a moment. Our storyteller will return shortly; please try again.',
     'A chill wind cut through the camp and the tale was lost. Give it another try in a minute.',
   ],
+  /** Cache-only mode (kill switch or a daily/monthly cap). Sent with kind "unavailable". */
+  resting: ['The spirits are resting tonight. The campfire will burn again tomorrow.'],
 } as const
 
 export type MessageKind = keyof typeof MESSAGES

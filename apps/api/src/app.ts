@@ -1,13 +1,19 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import { buildUserTurn } from './ai/systemPrompt.ts'
 import { AiError, type AiClient, type AiResult } from './ai/types.ts'
 import { checkInput } from './guards/input.ts'
 import { checkOutput } from './guards/output.ts'
+import type { CostGate } from './limits/costGate.ts'
 import { pickMessage } from './messages.ts'
 
 export interface AppDeps {
   ai: AiClient
+  /** Every cost layer (SPEC §8): kill switch, rate limits, concurrency, budget. */
+  cost: CostGate
+  /** Who is asking, for the per-IP limit. Socket address locally, x-real-ip on Vercel. */
+  clientIp: (c: Context) => string
   /** Same prompt and canary the AI client uses; the output guard checks for leaks of both. */
   systemPrompt: string
   canary: string
@@ -38,6 +44,13 @@ export function createApp(deps: AppDeps) {
 
   const fail = (c: Context, kind: 'invalid' | 'rejected' | 'unavailable', status: 400 | 413 | 415 | 503) =>
     c.json({ ok: false, kind, message: pickMessage(kind, random) }, status)
+  const rateLimited = (c: Context, retryAfterSeconds: number) => {
+    c.header('Retry-After', String(retryAfterSeconds))
+    const message = pickMessage('rate_limited', random).replace('{n}', String(retryAfterSeconds))
+    return c.json({ ok: false, kind: 'rate_limited', message, retryAfterSeconds }, 429)
+  }
+  // Cache-only mode. Phase 5 serves an unseen cached story here before giving up.
+  const resting = (c: Context) => c.json({ ok: false, kind: 'unavailable', message: pickMessage('resting', random) }, 503)
 
   app.get('/health', (c) => c.json({ ok: true }))
 
@@ -63,8 +76,15 @@ export function createApp(deps: AppDeps) {
         console.warn(`[story] input ${input.kind}: ${input.reason}`)
         return fail(c, input.kind, 400)
       }
+
+      // Cost layer 5: per-IP limit. After the input guard, so typos and rejected
+      // attempts don't use up an honest user's allowance (they never reach the AI anyway).
+      const client = await deps.cost.allowClient(deps.clientIp(c))
+      if (!client.ok) return rateLimited(c, client.retryAfterSeconds)
+
       const { setting, language, words } = input.value
       const prompt = { setting, language, words, avoid: [] }
+      const promptText = `${deps.systemPrompt}\n${buildUserTurn(prompt)}`
       const guardCtx = { words, language, canary: deps.canary, systemPrompt: deps.systemPrompt }
       const deadline = AbortSignal.timeout(deadlineMs)
 
@@ -76,6 +96,14 @@ export function createApp(deps: AppDeps) {
         }
         const last = attempt === MAX_ATTEMPTS
 
+        // Cost layers 1, 3, 6, 7, 9, 10: checked before every call, retries included.
+        const gate = await deps.cost.beginCall(promptText)
+        if (!gate.ok) {
+          console.warn(`[story] attempt ${attempt} not started: ${gate.reason}`)
+          if (attempt > 1) return fail(c, 'unavailable', 503)
+          return gate.mode === 'busy' ? rateLimited(c, gate.retryAfterSeconds) : resting(c)
+        }
+
         // THE AI CALL. The only place the model is reached; the key never leaves the server.
         let result: AiResult
         try {
@@ -83,6 +111,7 @@ export function createApp(deps: AppDeps) {
         } catch (err) {
           // Log the kind only: an error's message can carry URLs, upstream text, or the key.
           const kind = err instanceof AiError ? err.kind : 'unexpected'
+          await deps.cost.endCall(gate.ticket, { errorKind: kind })
           if (kind === 'auth') {
             console.error(`[story] AI auth failed (HTTP ${(err as AiError).status ?? '?'}): check GEMINI_API_KEY`)
           } else {
@@ -92,6 +121,7 @@ export function createApp(deps: AppDeps) {
           if (kind === 'server') await sleep(200 + Math.floor(random() * 400))
           continue
         }
+        await deps.cost.endCall(gate.ticket, { usage: result.usage })
 
         const checked = checkOutput(result, guardCtx)
         if (checked.ok) {
