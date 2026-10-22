@@ -539,13 +539,26 @@ Rules:
 
 Goal: it should feel like sitting at a campfire in a haunted place, not like filling out a form.
 
-- **Scene:** full-viewport scene per setting (layered fog, drifting embers, vignette, subtle parallax on pointer move). Background shifts when the setting changes.
-- **Input as ritual:** three "ingredient" slots styled as candles or runes; a setting picker as tarot-like cards; a big "Summon a tale" action.
-- **Reveal:** candle flare, then the story types out like ink bleeding onto parchment; spook factor shown as skulls/pumpkins.
-- **Sound:** optional ambient crackle/wind, **off by default**, toggle visible.
-- **Error states are in-world:** see §13. The scene reacts (fire dims for `unavailable`, an eye opens and glares for `rejected`, hourglass for `rate_limited`).
-- **Accessibility:** `prefers-reduced-motion` disables typing/particles; story region is `aria-live="polite"`; real buttons and labels; keyboard reachable; contrast checked.
-- **Performance:** CSS/canvas effects only, no heavy video. Effects pause when the tab is hidden.
+**As built (Phase 6):** one centered column: masthead, the tale, the fire, then the ritual form. The fire is the single bold element and every outcome changes it.
+
+- **Scene:** a night clearing fixed behind the page: sky tinted by the setting's hue (`--hue`, registered with `@property` so it fades between settings), stars, two generated pine treelines, two fog layers drifting at different speeds, and a vignette. Gentle pointer parallax: far trees move less than near ones.
+- **Fire (`Fire.tsx`):** layered CSS flames, rising embers, smoke and glowing coals. Its look comes from the scene's `data-mood`:
+
+  | Mood | When | Fire |
+  | --- | --- | --- |
+  | `idle` | start, after a story, after `invalid` | steady |
+  | `flare` | waiting for the AI | taller, faster, brighter; the button shimmers |
+  | `dim` | `unavailable`, `offline` | low, grey, smoking |
+  | `cold` | `rejected` | burns ghost-teal, the clearing chills, an eye glances about |
+  | `smoulder` | `rate_limited` | embers only, hourglass and a live "Wait N s" countdown |
+
+- **Input as ritual:** six setting cards (radio group) tinted by each setting's hue; three uneven "stone" word inputs; a language select; one "Tell the tale" button. Words are checked client-side with the same rule as the API, so `invalid` rarely reaches the server.
+- **Reveal:** the story surfaces from the dark, then types out with a glowing nib. Click the text to finish typing. Skulls kindle one by one for the spook factor.
+- **Type and colour:** IM Fell English for the masthead, card names and the story; Alegreya Sans for controls. Palette tokens in `styles/tokens.css` (forest night, ember, flame core, bone, smoke, ghost-teal). No all-caps labels.
+- **Sound:** generated fire crackle (Web Audio, no files), **off by default**, toggle visible.
+- **Error states are in-world:** see §13 and the mood table above. Raw server text is never shown; the client maps each outcome to its own message.
+- **Accessibility:** `prefers-reduced-motion` disables typing, particles, parallax and all animation. The full story goes to an `aria-live="polite"` region once; the typed copy is `aria-hidden`. Real buttons, labels, radio group and fieldset; visible focus rings; one `h1`.
+- **Performance:** CSS and SVG only, no images or video beyond two self-hosted fonts. Animations pause when the tab is hidden (`html[data-hidden]`).
 - **Styling split:** Tailwind classes for layout/spacing/breakpoints only. Colors, fonts, effects, animations in custom CSS with tokens in `styles/tokens.css`.
 
 ---
