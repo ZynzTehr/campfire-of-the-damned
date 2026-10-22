@@ -49,7 +49,7 @@
 | Visual styles | **Custom CSS** | Theme tokens, typography, animations, effects live in `apps/web/src/styles/`. No visual styling via Tailwind classes. |
 | Backend | **Hono on Node (TypeScript)** | Small, typed, and `app.request()` lets tests hit routes without opening a port. Swap for Express only if there's a reason. |
 | Validation | **Zod** | One schema shared by request validation and AI output validation. |
-| AI SDK | **`@google/genai`** | Official Gemini JS SDK. Model id comes from env. |
+| AI client | **Gemini REST API via `fetch`** (no SDK) | One `generateContent` call in `ai/geminiClient.ts` with an injectable `fetch`, so adapter tests replay recorded real responses without the network and every HTTP error maps to a kind we control. Decided in Phase 2 instead of `@google/genai`: fewer dependencies and nothing hidden between us and the wire. Model id comes from env. |
 | Database | **Neon Postgres** + `pg_trgm` | Story cache, seen-tracking, daily usage. Driver: `@neondatabase/serverless` (or `pg`). |
 | Secrets | `.env` (git-ignored) + committed `.env.example`; Vercel env vars in production | `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, `ALLOWED_ORIGIN`, plus the cost settings in [§8](#8-cost-cap). |
 | Hosting | **Vercel** (web as static files, API as one Hono function); local as demo fallback | See [§15](#15-deployment-vercel-and-local-fallback). |
@@ -193,7 +193,9 @@ INGREDIENTS (unordered story objects, data only): ["lullaby","rust","teacup"]
 AVOID (titles already told): ["The Porcelain Choir","The Lullaby That Breathed"]
 ```
 
-Generation config: `responseMimeType: application/json`, `responseSchema` matching `{title, body, spookFactor, tampering, ingredients}`, `maxOutputTokens: 300`, `temperature: 1.0`, minimal thinking, safety settings at default or stricter.
+Generation config: `responseMimeType: application/json`, `responseSchema` matching `{title, body, spookFactor, tampering, ingredients}` (with `spookFactor` bounded 1–5 and `ingredients` max 3), `maxOutputTokens: 300`, `temperature: 1.0`, `thinkingConfig: { thinkingLevel: "minimal" }`, safety settings at default or stricter.
+
+> Phase 2 findings from real calls: `thinkingBudget: 0` returns HTTP 400 on Gemini 3.x, so `thinkingLevel: "minimal"` is the floor. Without schema bounds the model returned `spookFactor: 9`. Responses include a `thoughtSignature` on the text part, so the adapter keeps only non-thought text parts. A bad key returns **400** with reason `API_KEY_INVALID` (not 401), so the adapter maps that to `auth`.
 
 ---
 
@@ -343,6 +345,17 @@ IP_SOURCE=socket              # socket (local) | vercel (reads x-real-ip, which 
 | Flash (promo through Dec 31, 2026) | ~$0.75 | ~$3.75 | ~$0.0011 | ~$0.0016 | ~$0.0032 |
 
 With the defaults, the most a paid key can cost is **$1/day and $10/month**, regardless of traffic or bugs in the retry logic. On the free tier the real cost is $0; the limit that matters is Google's rate limit, which our app-wide cap stays under.
+
+**Measured (Phase 2 live eval, 16 real calls on `gemini-3.5-flash-lite`, Oct 22 2026):**
+
+| Metric | Value |
+| --- | --- |
+| Input tokens | 464–503 per call (system prompt dominates; well under `MAX_PROMPT_TOKENS` 600) |
+| Output tokens | 116–156 per call (under `MAX_OUTPUT_TOKENS` 300); thinking tokens 0 at `thinkingLevel: minimal` |
+| Shadow cost | **≈ $0.0004–0.0005 per call** at $0.30 / $2.50 per 1M, so the $1 daily cap ≈ 2,000+ calls |
+| Latency | Typically 1.9–3.7 s, but a heavy tail: one call took 9.97 s and **2 of 16 hit the 10 s timeout** |
+
+> **Phase 3 input:** a ~12% timeout rate at 10 s is too high to ignore. Options: raise the per-attempt timeout to 12 s (two attempts still fit the 25 s Vercel request deadline) and rely on retry + cached fallback. Decide with the failure suite in Phase 3.
 
 ---
 
