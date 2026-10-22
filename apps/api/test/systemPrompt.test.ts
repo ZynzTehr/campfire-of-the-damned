@@ -22,6 +22,12 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/no poems, songs, lists, scripts, code/)
     expect(prompt).toMatch(/language named in LANGUAGE and no other/)
   })
+
+  // Live eval: fr/de stories drifted into "I", and the Keeper appeared as a character.
+  it('forbids first person outside dialogue and keeps the narrator out of the story', () => {
+    expect(prompt).toMatch(/Never use first person \(I, me, my, we\) outside quoted dialogue, in any language/)
+    expect(prompt).toMatch(/The Campfire Keeper never appears in or is named in the story/)
+  })
 })
 
 describe('buildUserTurn', () => {
@@ -61,10 +67,23 @@ describe('buildUserTurn', () => {
     expect(buildUserTurn({ ...base, language, words: ['fog'] })).toContain(`LANGUAGE: ${name}`)
   })
 
-  it('includes the setting and the AVOID list as JSON', () => {
+  it('includes the setting as readable words and the AVOID list as JSON', () => {
     const turn = buildUserTurn({ ...base, words: ['fog'], avoid: ['The Porcelain Choir'] })
-    expect(turn).toContain('SETTING: haunted-attic')
+    expect(turn).toContain('SETTING: a haunted attic')
     expect(turn).toContain('AVOID (titles already told): ["The Porcelain Choir"]')
+  })
+
+  // Live eval: the slug "sunken-lighthouse" leaked into the prose.
+  it.each([
+    ['abandoned-asylum', 'an abandoned asylum'],
+    ['foggy-graveyard', 'a foggy graveyard'],
+    ['cursed-carnival', 'a cursed carnival'],
+    ['sunken-lighthouse', 'a sunken lighthouse'],
+    ['witchs-cottage', "a witch's cottage"],
+  ] as const)('never sends the slug %s, sends "%s"', (setting, phrase) => {
+    const turn = buildUserTurn({ ...base, setting, words: ['fog'] })
+    expect(turn).toContain(`SETTING: ${phrase}`)
+    expect(turn).not.toContain(setting)
   })
 
   it('does not mutate the caller\'s word array', () => {
