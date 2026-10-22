@@ -126,3 +126,27 @@ Local prompt history and build log for tracking iterations, model calls, decisio
 - **Goal:** Publish Phase 1, then get the AI key working for Phase 2.
 - **Action Taken:** Scanned the unpushed commits and pushed `main` to GitHub. Checked the key by listing the available models (HTTP 200) without printing it, and set `GEMINI_MODEL=gemini-3.5-flash-lite` (newest stable Flash-Lite) in `.env`. Switched to `phase-2-ai-call` and fast-forwarded it to `main`. Turned the ad hoc secret scan into `scripts/scan-secrets.sh` (`vpr scan:secrets`). It checks tracked and staged files for both Google key formats, Postgres URLs with passwords, and tracked `.env` files. Proved it works both ways: a canary file with a fake key fails the scan, and the clean tree passes. Rescanned all git history with the new patterns: 0 matches.
 - **Mistake caught in my own work:** the secret scan I ran before the push only matched `AIza…` keys, but the real key uses the newer `AQ.` format, so the scan would have missed it. Nothing leaked; the key was never committed. Also, opening `.env` in the editor sent the key into the chat, so it should be rotated after the demo.
+
+---
+
+### Entry 11
+
+- **Timestamp:** 2026-10-22 11:45:03
+- **Prompt:**
+  > Begin Phase 2.
+- **Goal:** Make the real AI call work end to end (system prompt in code, structured output, `POST /api/story`), test it with fakes and recorded real responses, judge real outputs, and commit before any guardrails.
+- **Action Taken:**
+  - **Probed the real API first.** `thinkingBudget: 0` returns HTTP 400 on Gemini 3.x (`thinkingLevel: "minimal"` works). Without schema bounds the model returned `spookFactor: 9`. Responses carry a `thoughtSignature` part. A bad key returns 400 `API_KEY_INVALID`, not 401.
+  - **Built:**
+    - `story.ts`: Zod request and output schemas.
+    - `ai/systemPrompt.ts`: the system prompt in code, with a boot-time canary. Words are sorted and JSON-encoded, and the language comes only from the request field.
+    - `ai/geminiClient.ts`: a REST adapter with an injectable `fetch`, chosen instead of the SDK so tests can replay real responses.
+    - `ai/fakeClient.ts`, `messages.ts`, and the `POST /api/story` route.
+  - **Tests:** written first and seen failing where it applied: prompt builder, 24 adapter tests against 4 recorded real fixtures plus every failure kind, and 35 route tests. Result: 88/88 green.
+  - **Real calls:** real `curl` calls returned stories in English and Spanish.
+  - **Live eval:** ran 16 real calls through `vpr eval` and judged them by hand. Persona, format, and language attacks all held. Measured cost was about $0.0004–0.0005 per call (shadow). Two of 16 calls hit the 10 s timeout, which is noted for Phase 3.
+- **Problems found by judging real output, and fixed:** French and German stories drifted into first person ("J'ai voulu fuir"), the narrator named itself in the story, and the slug "sunken-lighthouse" leaked into the prose. Tightened prompt rule 9 and sent settings as readable phrases. The re-eval showed 0 first-person uses, 0 narrator mentions, and 0 slugs. Also learned that the planned third-person output check needs pronoun lists for every supported language, not just English and Spanish (Phase 3).
+- **Mistakes caught in my own work:**
+  1. I piped the secret scan through `tail`, which hid its failing exit code, so a commit with a key-shaped fake test key went through. Renamed the fake key and amended the unpushed commit. Gating commands are no longer piped.
+  2. The `vp run` task cache replayed a stale "typecheck passed" after new files were added. I turned the cache off and proved `tsc` now catches a deliberately planted type error.
+  3. I wrote the prompt module before running its tests red, so I checked them by mutation instead: removing the sort made 2 tests fail.
