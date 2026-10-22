@@ -1,0 +1,11 @@
+/* Tailwind is used for layout utilities only (SPEC §2). Visual styles live in ./styles. */
+@import 'tailwindcss';
+@import './styles/tokens.css';
+
+html,
+body {
+  margin: 0;
+  background: var(--color-night);
+  color: var(--color-bone);
+  font-family: var(--font-body);
+}

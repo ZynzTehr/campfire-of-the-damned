@@ -1,0 +1,11 @@
+/* Design tokens. Phase 6 expands these into the full campfire theme. */
+:root {
+  --color-night: hsl(260 30% 6%);
+  --color-ember: hsl(24 95% 55%);
+  --color-flame: hsl(38 100% 62%);
+  --color-bone: hsl(40 30% 88%);
+  --color-ash: hsl(260 8% 60%);
+
+  --font-display: 'Georgia', 'Times New Roman', serif;
+  --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
