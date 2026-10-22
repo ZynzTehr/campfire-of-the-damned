@@ -88,3 +88,15 @@ Local prompt history and build log for tracking iterations, model calls, decisio
 - **Action Taken:** Only partly covered before (generic injection rules, no persona or format/language checks). Added §7.4 "Intent boundary" to `SPEC.md`: words may flavor the story but can't change narrator, format, language, rating, or purpose. Added prompt rule 9, a `tampering` flag in the output schema, sorted JSON word lists, a cross-slot phrase check, and output checks for prose format, English, in-character voice, and third-person narration. Added a threat-model row and a persona/drift test suite with over-blocking checks.
 - **Mistakes caught in my own draft:** (1) blocking `dan` and `mode` as single words would have rejected a ghost named Dan; narrowed to `dan mode` / `developer mode`. (2) Banning `rules` and `here's` anywhere would reject normal prose; limited to position-specific checks. (3) Sorting words to break up sentences can *create* a phrase (`as act dan` → `act as dan`); the phrase check now runs on both the typed and the sorted order, with a test.
 
+---
+
+### Entry 8
+
+- **Timestamp:** 2026-10-22 10:32:04
+- **Prompt:**
+  > - Are we using mock data for our tests (API calls, etc.)?
+  > - We'll deploy to Vercel, with a local demo as a fallback.
+- **Goal:** Define what's faked vs. real in tests, and adapt the design for Vercel.
+- **Action Taken:** Added a "Test doubles" table to `SPEC.md` §11: fakes for unit/route tests, recorded real Gemini responses for the adapter, a real Neon test branch for SQL and concurrency, a manual live eval, and smoke tests after deploy. Added a network tripwire so unit tests can't call real APIs. Added §15 Deployment: in-memory limits don't hold on Vercel (instances come and go), so all shared limits move to Neon in production, and the server refuses to start on Vercel with memory stores. Replaced `TRUST_PROXY` with `IP_SOURCE` (Vercel overwrites `x-real-ip`), disabled AI on preview deployments, set `maxDuration: 30` with a 25 s request deadline, and added security headers.
+- **Mistake caught in my own draft:** the first local-fallback plan said to demo new stories with Wi-Fi off, which can't work because Gemini is remote. Added `SEED_STORIES` so the offline fallback still serves real stories.
+

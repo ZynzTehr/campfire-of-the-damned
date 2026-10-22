@@ -20,7 +20,8 @@
 12. [Frontend experience](#12-frontend-experience)
 13. [User-facing messages](#13-user-facing-messages)
 14. [Phases and branches](#14-phases-and-branches)
-15. [Open questions](#15-open-questions)
+15. [Deployment (Vercel) and local fallback](#15-deployment-vercel-and-local-fallback)
+16. [Open questions](#16-open-questions)
 
 ---
 
@@ -50,7 +51,8 @@
 | Validation | **Zod** | One schema shared by request validation and AI output validation. |
 | AI SDK | **`@google/genai`** | Official Gemini JS SDK. Model id comes from env. |
 | Database | **Neon Postgres** + `pg_trgm` | Story cache, seen-tracking, daily usage. Driver: `@neondatabase/serverless` (or `pg`). |
-| Secrets | `.env` (git-ignored) + committed `.env.example` | `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, `ALLOWED_ORIGIN`, plus the cost settings in [§8](#8-cost-cap). |
+| Secrets | `.env` (git-ignored) + committed `.env.example`; Vercel env vars in production | `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, `ALLOWED_ORIGIN`, plus the cost settings in [§8](#8-cost-cap). |
+| Hosting | **Vercel** (web as static files, API as one Hono function); local as demo fallback | See [§15](#15-deployment-vercel-and-local-fallback). |
 
 ### Repo layout (target)
 
@@ -67,6 +69,8 @@
 │   │   │   └── app.ts      # wires it together (dependency injection)
 │   │   └── test/
 │   └── web/            # Vite+ React TS app
+├── api/index.ts        # Vercel function entry: wraps apps/api's Hono app
+├── vercel.json         # rewrites, maxDuration, security headers
 ├── SPEC.md
 ├── requirements.md
 └── prompt-log.md
@@ -195,6 +199,7 @@ Generation config: `responseMimeType: application/json`, `responseSchema` matchi
 ### 7.1 Input (`guards/input.ts`, `guards/injection.ts`)
 
 In order, cheapest first:
+
 1. Reject body > 1 KB before parsing (413).
 2. Reject non-JSON content type (415) and unparsable JSON (400 invalid).
 3. Zod strict schema (400 invalid). Arrays/objects where strings belong, `__proto__`/`constructor` keys, extra fields: all rejected.
@@ -208,6 +213,7 @@ In order, cheapest first:
 ### 7.2 Output (`guards/output.ts`)
 
 The model's reply must pass all of these before anyone sees it or it's cached:
+
 1. `finishReason === "STOP"` (not `SAFETY`, `MAX_TOKENS`, `RECITATION`, etc.).
 2. Parses as JSON and matches the Zod schema (title 1–60 chars, body 3–5 sentences and ≤ 600 chars, `spookFactor` integer 1–5).
 3. Every ingredient word appears in the body (case-insensitive, allowing simple plurals).
@@ -288,7 +294,11 @@ Checking the budget *after* a call lets 20 parallel requests all pass a check th
 3. After the call, **reconcile**: replace the reservation with the real cost from the response's usage metadata (input, output, and thinking tokens).
 4. If the call fails, release the reservation. If the response has no usage metadata, keep the worst-case charge.
 
-Phase 4 implements this with an in-memory store behind a `BudgetStore` interface. Phase 5 adds a Neon store so the budget survives restarts. Until then, a restart resets the in-memory budget (documented limitation).
+Phase 4 implements this with an in-memory store behind a `BudgetStore` interface. Phase 5 adds the Neon store.
+
+**On Vercel, in-memory limits don't work.** Each request can land on a different function instance, and instances start and stop on their own, so an in-memory counter resets constantly. Every limit that must hold across requests lives in Neon in production: per-IP and app-wide rate limits, the daily/monthly budget, and the concurrency cap (as short-lived "lease" rows that expire after 30 s, so a crashed function can't hold a slot forever). Memory stores are for tests and local dev only.
+
+**Fail-closed rule:** if the server detects it's running on Vercel (`VERCEL` env var is set) and `STORE` isn't `neon`, it refuses to start.
 
 ### 8.3 Fail-closed config
 
@@ -296,7 +306,7 @@ The server **refuses to start** if any cost setting is missing, not a number, �
 
 ### 8.4 Settings (`.env.example`)
 
-```
+```env.example
 AI_ENABLED=true
 GEMINI_MODEL=                 # confirm current Flash-Lite id in AI Studio
 PRICE_INPUT_PER_M_USD=0.30    # paid price, used for shadow cost on free tier
@@ -312,7 +322,8 @@ DAILY_AI_CALL_CAP=500
 DAILY_USD_CAP=1.00
 MONTHLY_USD_CAP=10.00
 DEGRADED_AI_CALLS_PER_HOUR=20
-TRUST_PROXY=false
+STORE=memory                  # memory (tests/local) | neon (required on Vercel)
+IP_SOURCE=socket              # socket (local) | vercel (reads x-real-ip, which Vercel overwrites)
 ```
 
 ### 8.5 Outside the code (before any paid key)
@@ -399,7 +410,8 @@ The app has no accounts, no payments, no private data. The only assets are: **th
 | Steal the API key | High (needs server/repo access) | High (free AI on our bill) | High | Key only in server env; never in frontend bundle, responses, logs, or git. Test asserts no response ever contains it. Secret scan before push. |
 | Denial of wallet (spam requests) | Very low (a loop) | Low (nuisance) | Medium now, **high on a paid key** | All 11 layers in §8: per-IP + app-wide limits, concurrency cap, reserved dollar caps, cache. |
 | Rotate IPs to dodge per-IP limits | Medium | Low | Medium | App-wide RPM/RPD caps and dollar caps don't care how many IPs there are. |
-| Rate-limit bypass via spoofed `X-Forwarded-For` | Low | Low | Medium | Only trust proxy headers when `TRUST_PROXY=true`; tested. |
+| Rate-limit bypass via spoofed `X-Forwarded-For` / `X-Real-IP` | Low | Low | Medium | `IP_SOURCE=socket` ignores all forwarding headers. On Vercel (`IP_SOURCE=vercel`) we read `x-real-ip`, which Vercel's docs say it overwrites to prevent spoofing. Verified by a smoke test after deploy. |
+| Abuse of Vercel preview deployments (public URLs, same key and budget) | Low | Low | Medium | Preview environment gets `AI_ENABLED=false` (or a separate key with tiny caps). Only Production has the real key. |
 | Prompt injection to get free general-purpose LLM | Low | Low (3 words of 24 chars is a useless pipe) | Low | Schema shape kills most of it; heuristics + system prompt rule 5 + output schema. |
 | Prompt injection to make the app say something offensive (screenshot for laughs) | Medium | Medium (reputation) | **Medium-high for a demo** | Input blocklist, model safety settings, output checks, PG-13 rule. This is the one to attack hardest in tests. |
 | Persona hijack or drift ("act as", make the narrator a flirty girlfriend, switch to a poem, code, or another language, break character) | Low to medium | Medium (screenshots, "look what I made it do") | **Medium-high for a demo** | §7.4: sorted word list, cross-slot phrase check, prompt rule 9, `tampering` flag, prose/English/in-character output checks. |
@@ -419,6 +431,24 @@ The app has no accounts, no payments, no private data. The only assets are: **th
 Tool: `vp test` (Vitest). Write the failing test first, then the code. Tests import from `vite-plus/test` if the scaffold requires it.
 
 **Rule:** a test is only useful if it would fail when the guard is removed. For each guard, write at least one test that proves the bad thing is blocked, and one that proves a legit near-miss still works (no over-blocking).
+
+### Test doubles: what's fake, what's real
+
+Most tests use fakes, so they're fast, free, and can simulate failures on demand. Fakes only prove the code matches *our assumptions*, so some tests check those assumptions against the real services.
+
+| Level | AI | Database | Runs | Proves |
+| --- | --- | --- | --- | --- |
+| **Unit / route** | `FakeAiClient` with scripted replies: good story, timeout, 429, 5xx, 401, garbage JSON, `SAFETY` block, hostile content | `MemoryStore` | Every `vp test`, CI | Guards, routing, messages, retries, caps |
+| **Adapter** | Real `GeminiClient` code with the network stubbed, fed **recorded real Gemini responses** from `test/fixtures/gemini/` | n/a | Every `vp test` | Our parsing matches what Gemini actually sends (usage metadata, `finishReason`, error bodies) |
+| **Integration** | Fake | **Real Neon test branch** (reset per run) | `RUN_DB_TESTS=1 vp test` | SQL, `pg_trgm`, and atomic reservations. The parallel-overshoot test must run here: a memory store can't prove SQL is atomic. |
+| **Live eval** | Real Gemini | Memory or Neon | Manual (`vp run eval`), uses quota | Output quality, guard pass rates, real token cost |
+| **Smoke (deployed)** | Real | Real | After each Vercel deploy | Health, one story, injection → rejected, 2 KB body → 413, spoofed `X-Forwarded-For` doesn't dodge the rate limit, no key in responses |
+
+Rules:
+- **Fakes implement the same TypeScript interface as the real thing** (dependency injection, not `vi.mock` on module paths), so a fake can't quietly get out of shape.
+- **Network tripwire:** unit test setup replaces global `fetch` with one that throws. An accidental real API call fails the test loudly instead of spending quota.
+- **Recording fixtures (Phase 2):** capture 3–5 real Gemini responses (a good story, an error body, a safety block if we can trigger one), strip the key and headers, commit them. Re-record if we change models.
+- No real key is ever needed to run `vp test`.
 
 ### Categories
 
@@ -443,7 +473,9 @@ Tool: `vp test` (Vitest). Write the failing test first, then the code. Tests imp
 4. **Failure suite** (fake AI/store): timeout, 5xx then success (retry works), 5xx twice, 429 (no retry), 401, network error, DB down on read, DB down on write, both down, thrown exception. Assert status, `kind`, message, and that no upstream text leaks.
 5. **Secrets tests:** run every failure path with a known fake key in env; assert no response body or log line contains it.
 6. **Cost tests:**
-   - Per-IP limit trips at the configured count; `X-Forwarded-For` is ignored unless `TRUST_PROXY=true`.
+   - Per-IP limit trips at the configured count; with `IP_SOURCE=socket`, `X-Forwarded-For` and `X-Real-IP` are ignored; with `IP_SOURCE=vercel`, only `x-real-ip` is read.
+   - Startup refuses when `VERCEL` is set and `STORE=memory`.
+   - Concurrency leases expire, so a crashed request doesn't hold a slot forever.
    - App-wide RPM/RPD caps trip regardless of how many distinct IPs send requests.
    - **Parallel overshoot:** fire 50 concurrent requests with a budget that allows 3 worst-case calls; assert at most 3 AI calls happen.
    - Concurrency cap: with a slow fake AI, never more than `MAX_CONCURRENT_AI_CALLS` in flight.
@@ -480,22 +512,27 @@ Goal: it should feel like sitting at a campfire in a haunted place, not like fil
 All copy lives in `apps/api/src/messages.ts` (server picks a random line per `kind`) so tests can assert on it.
 
 **`rejected` (cheeky, for injection/abuse):**
+
 - "Nice try, mortal. The spirits don't take orders from the living."
 - "The fire hisses. It knows what you're up to."
 - "Those aren't ingredients, those are instructions. The Campfire Keeper is not amused."
 - "Clever. Not clever enough. Three honest words, please."
 
 **`invalid` (helpful, for honest mistakes):**
+
 - "The spell needs 1 to 3 single words, letters only. Try again."
 
 **`rate_limited` (themed, includes wait time):**
+
 - "Even ghosts need a breather. Come back in {n} seconds."
 
 **`unavailable` (polite, for AI/backend failures):**
+
 - "The fire has gone cold for a moment. Our storyteller will return shortly; please try again."
 - "A chill wind cut through the camp and the tale was lost. Give it another try in a minute."
 
 Frontend-only (backend unreachable, fetch failed):
+
 - "We can't reach the campfire right now. Check your connection and try again."
 
 ---
@@ -512,19 +549,48 @@ Inside each phase, follow the build loop: **ask → review the diff → accept �
 | 2 | `phase-2-ai-call` | Gemini client behind an interface, system prompt in code, structured output, `POST /api/story` happy path. Fake client for tests. Judge 5–10 real outputs. | A real story comes back from curl; tests green; committed **before** any guardrails. |
 | 3 | `phase-3-guardrails` | Input guard, output guard, failure handling, messages, top-level error handler. Attack suites from §11 written first. | All three guard suites green; manual break attempts logged in prompt-log. |
 | 4 | `phase-4-cost-cap` | All §8 layers with an in-memory `BudgetStore`: config validation, kill switch, token caps, per-IP + app-wide limits, concurrency cap, reservation/reconcile, dollar + call caps, cache-only mode. Real cost measured from usage metadata. | Cost tests green (incl. parallel overshoot); measured cost per call recorded in this spec. |
-| 5 | `phase-5-cache` | Neon project/branch, migrations, Neon store + memory store, seen-tracking, AVOID list, near-duplicate check. | Cache tests green against memory store and a Neon test branch. |
+| 5 | `phase-5-cache` | Neon project and test branch, migrations, Neon stores for cache, seen-tracking, **and all shared limits** (rate limits, budget, concurrency leases), AVOID list, near-duplicate check. | Cache and limit tests green against memory store and the Neon test branch, including parallel overshoot. |
 | 6 | `phase-6-frontend` | Immersive UI per §12, error states per §13, frontend tests. | Full flow works in browser, every error kind demoed by hand. |
-| 7 | `phase-7-demo` | README (setup, data flow, failure mode, guardrails, cost), demo script, final secret scan, push to GitHub. | Control checklist in requirements.md all ticked. |
+| 7 | `phase-7-demo` | Vercel deploy per §15, smoke tests, README (setup, data flow, failure mode, guardrails, cost), demo script, final secret scan, push to GitHub. Rehearse the local fallback. | Smoke tests pass on the live URL; local fallback runs; control checklist in requirements.md all ticked. |
 
 > **Time check:** demo is tomorrow. Phases 1–4 are the rubric. Phase 5 (cache) and 6 (frontend) make it shine. If the day runs short, a minimal frontend that shows the story and the error messages beats a perfect cache with no UI.
 
 ---
 
-## 15. Open questions
+## 15. Deployment (Vercel) and local fallback
+
+### Vercel
+
+- **One project:** Vite builds the web app to static files; `api/index.ts` wraps the Hono app as a Node.js function (`@hono/node-server/vercel` `handle`). `vercel.json` rewrites `/api/*` to the function and everything else to `index.html`. Confirm the exact wiring against Vercel's and Hono's docs when we get there; don't guess.
+- **Same origin:** web and API share one domain, so `ALLOWED_ORIGIN` is the production URL and CORS stays strict.
+- **Function timeout:** Vercel's default is far longer than we need. Set `maxDuration: 30` in `vercel.json` and enforce our own 25 s deadline per request (2 attempts × 10 s plus DB time), so a hung call can't run up function time.
+- **Database:** Neon's serverless driver over HTTP with the **pooled** connection string; serverless functions open many short connections.
+- **Security headers** in `vercel.json`: CSP (no inline scripts, `connect-src 'self'`), `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `frame-ancestors 'none'`.
+- **Environments:**
+
+  | Vercel environment | `GEMINI_API_KEY` | `AI_ENABLED` | `STORE` | Neon branch |
+  | --- | --- | --- | --- | --- |
+  | Production | real key (free tier) | `true` | `neon` | main |
+  | Preview | none, or a separate key with tiny caps | `false` | `neon` | preview/dev branch |
+  | Development (`vercel env pull` → `.env.local`, git-ignored) | dev key | `true` | `memory` or `neon` | dev branch |
+
+- Secrets live only in Vercel's env settings and local `.env` files. Nothing secret in `vercel.json` or the repo.
+
+### Local fallback (if Vercel or Neon fails during the demo)
+
+- `vp dev` runs web and API locally with `.env`.
+- `STORE=memory` works with no database, so the demo survives a Neon outage.
+- **Limit:** new stories still need internet, because Gemini is remote. With no internet at all, the app can only show the `unavailable` message, or cached stories.
+- For that case, `SEED_STORIES=true` loads ~10 hand-checked stories from `apps/api/seed/stories.json` into the memory store at startup. The cache-only path then still returns real stories offline, and we can show the guardrails working.
+- Rehearse once in Phase 7: run locally against the real API; then turn Wi-Fi off and show the polite `unavailable` message plus a seeded story.
+
+---
+
+## 16. Open questions
 
 - [x] Final app name: **Campfire of the Damned**.
 - [x] Final list of settings: the 6 in §5.
 - [x] Gemini free tier for the demo; cost guardrails built for paid (§8).
 - [x] Story length: 3–5 sentences.
-- [ ] Hosting for the demo: local only, or deploy (e.g. API + web on one host)?
+- [x] Hosting: Vercel, with local as the demo fallback (§15).
 - [ ] Copy the real free-tier RPM/RPD for our model from AI Studio into `.env` (Phase 4).
