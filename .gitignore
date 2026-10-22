@@ -1,0 +1,22 @@
+# Environment & secrets
+.env
+.env.local
+*.env
+*.key
+*.pem
+
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Nested projects
+MyNewAgent/
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
