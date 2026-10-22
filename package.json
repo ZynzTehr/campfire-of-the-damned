@@ -6,7 +6,8 @@
   "scripts": {
     "ready": "vp check && vp run -r test && vp run -r build",
     "dev": "vp run -r --parallel dev",
-    "test": "vp run -r test"
+    "test": "vp run -r test",
+    "scan:secrets": "./scripts/scan-secrets.sh"
   },
   "devDependencies": {
     "vite-plus": "catalog:"
