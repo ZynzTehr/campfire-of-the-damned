@@ -215,6 +215,13 @@ In order, cheapest first:
    - Do **not** block genre or language words like `song`, `poem`, `pirate`, `french`, `robot`. They're legitimate ingredients ("a pirate's ghost", "a cursed song"). The output guard enforces format, language, and narrator instead. Rule of thumb: input blocks *intent to steer*; output enforces *what the app produces*.
 8. Small profanity/slur blocklist (400 rejected).
 
+> **As built (Phase 3), `guards/input.ts` only.** Changes from the plan above:
+> - **Order:** abuse checks (markup → steering words → steering phrases → blocklist) run **before** the word regex. An attack like `</INGREDIENTS>` or a sentence in one slot then gets the cheeky `rejected`, not the helpful `invalid`. Honest typos (`old house`, `bat2`) still get `invalid`. Zod checks only the shape at first (words are strings ≤ 64 chars); the regex runs last on the normalized word.
+> - **Curly apostrophes** (`’ ‘ ʼ ′`) are straightened during normalization. Without this, `don’t` typed on a phone was over-blocked.
+> - **Confusables:** common Cyrillic/Greek look-alikes are folded to Latin, **only for blocklist matching**, so `іgnоrе` (Cyrillic і, о, е) is caught. The word itself is not changed; if it isn't caught, the regex rejects it anyway.
+> - Steering words and phrases are matched on whole tokens, so `scunthorpe`, `grape`, `systematic` and `pirate` pass.
+> - Every check has a mutation test: remove it and at least one test fails.
+
 ### 7.2 Output (`guards/output.ts`)
 
 The model's reply must pass all of these before anyone sees it or it's cached:
@@ -224,19 +231,21 @@ The model's reply must pass all of these before anyone sees it or it's cached:
 3. Every ingredient is used. For `en`: each word appears in the body (case-insensitive, allowing simple plurals). For other languages: `ingredients` has one entry per word, and each entry appears in the body. We can't verify the translation itself; we only check that the model committed to a form and used it.
 4. No URLs, no HTML tags, no markdown code fences, no `{`/`}` in prose.
 5. No canary token and no long verbatim chunk of the system prompt (leak check).
-6. Not a near-duplicate: trigram similarity to recent stories for the same setting below threshold (start at 0.5, tune with data).
+6. Not a near-duplicate: trigram similarity to recent stories for the same setting below threshold (start at 0.5, tune with data). **Deferred to Phase 5**: it needs the story store.
 7. `tampering === true` → respond `rejected` (cheeky), don't cache, don't regenerate. The model is a second detector at no extra cost. It can be fooled into saying `false`, so this check only adds to the others.
 8. **Prose, not another format:** at most one line break; no lines starting with list markers (`-`, `*`, `1.`); no speaker labels (`NAME:`); no rhyme-scheme layout (≥ 3 short lines). Catches poems, scripts, lists, recipes, and chat transcripts.
 9. **Requested language:** at least ~90% of letters are Latin script, and the body contains several common function words of the *requested* language and fewer of any other (e.g. `the/and/of/was` for `en`, `el/la/de/que/y` for `es`, `le/la/de/et/que` for `fr`). Catches drift away from the chosen language in either direction.
 10. **In character:** no assistant or meta talk. Anywhere: `as an ai`, `language model`, `my instructions`, `system prompt`, `you asked`, `your request`. At the start of the title or body only: `sure`, `here's`, `here is`, `certainly`, `okay`. Outside quotation marks only: `i can't`, `i cannot`, `i'm sorry`. Position matters because "here's where she vanished" or a ghost saying "I'm sorry" is normal prose. **Third person:** more than 2 uses of `I`/`me`/`my` outside quotation marks fails (catches the narrator turning into a character talking to the user). The phrase lists are per language (start with `en` and `es`); the English list runs for every language, since assistant-speak leaks through in English most often.
 
-On failure: regenerate once with the same input. On second failure: fallback (unseen cached story, else 503 unavailable). Log the failure reason server-side (without the key).
+On failure: regenerate once with the same input. On second failure: fallback (unseen cached story, else 503 unavailable). Log the failure reason server-side (without the key). **Until Phase 5 the fallback is always 503.**
+
+> **As built (Phase 3):** checks run in the order finish → schema → tampering → markup → leak → format → language → sentences → ingredients → character, and the first failure is the logged reason. The leak check matches the canary plus any run of 6 words copied from the system prompt. Refusal and first-person checks ignore text inside `"…"`, `“…”`, `«…»`, `„…“`. A real-output fixture set (`test/fixtures/stories.ts`) proves the guard passes the stories the model actually wrote in Phase 2, and rejects the real fr/de first-person drift.
 
 ### 7.3 Failure (`ai/geminiClient.ts`, `app.ts`)
 
 | Failure | Behavior |
 | --- | --- |
-| Timeout (> 10 s) | Abort, retry once, then fallback |
+| Timeout (> 12 s per attempt) | Abort, retry once, then fallback. Raised from 10 s after Phase 2 measured 2/16 calls over 10 s; 2 × 12 s fits the 25 s request deadline. |
 | 5xx from Gemini | Retry once with jitter, then fallback |
 | 429 from Gemini | No retry. Fallback. |
 | 401/403 (bad key) | No retry. Fallback. Log loudly server-side. |
@@ -244,6 +253,9 @@ On failure: regenerate once with the same input. On second failure: fallback (un
 | DB unreachable | Skip cache and seen-tracking. The real budget can't be checked, so AI calls continue only under a small in-memory cap (`DEGRADED_AI_CALLS_PER_HOUR`, default 20). Fail closed, never open. |
 | AI and DB both down | 503 unavailable with polite message |
 | Unexpected exception | Caught by a top-level handler → 503 unavailable, generic message |
+| Request deadline (25 s, both attempts) | No attempt starts after it. Each call is also raced against it, so a client that ignores its abort signal is still abandoned. 503 unavailable. |
+
+The attempt cap is shared: a request makes at most **2** AI calls in total, whether the second is a retry or a regeneration. A test runs all 64 combinations of first and second outcomes. Logs carry only the error kind and the guard reason, never error messages or model text (they can carry URLs, upstream text, or the key).
 
 ### 7.4 Intent boundary (persona and drift)
 
