@@ -290,10 +290,10 @@ Design goal: **switching `GEMINI_API_KEY` to a paid key must not be able to prod
 | --- | --- | --- | --- |
 | 1 | **Kill switch** `AI_ENABLED` | Everything, instantly | `true` |
 | 2 | **Input caps**: body ≤ 1 KB, ≤ 3 words × 24 chars | Huge prompts | fixed |
-| 3 | **Prompt token ceiling** `MAX_PROMPT_TOKENS`: estimate tokens (chars ÷ 3, rounded up) before calling; refuse if over | Prompt growth from code changes (e.g. AVOID list getting long) | 600 |
+| 3 | **Prompt token ceiling** `MAX_PROMPT_TOKENS`: estimate tokens (chars ÷ 3, rounded up) before calling; refuse if over | Prompt growth from code changes (e.g. AVOID list getting long) | 900 (the real ~527-token prompt estimates ~690; 600 would have blocked every call) |
 | 4 | **Output cap** `MAX_OUTPUT_TOKENS` on every call; thinking at the minimum the model allows | Long or runaway outputs, hidden thinking spend | 300 |
 | 5 | **Per-IP rate limit** (sliding window) | One user hammering | 5/min, 30/hour |
-| 6 | **App-wide rate limit** `APP_RPM_CAP`, `APP_RPD_CAP`: set below the provider's limits | Many users at once; hitting Google's 429 | set from AI Studio values minus ~20% |
+| 6 | **App-wide rate limit** `APP_RPM_CAP`, `APP_RPD_CAP`: set below the provider's limits. Counts **AI calls**, not requests (a retry uses a slot) | Many users at once; hitting Google's 429 | 12/min (80% of flash-lite's 15 RPM), 1,000/day. AI Studio, Oct 22: flash 10 RPM, 250K TPM, ~1,500 RPD; flash-lite 15 RPM, RPD not shown |
 | 7 | **Concurrency cap** `MAX_CONCURRENT_AI_CALLS` | Bursts that slip past per-minute windows | 3 |
 | 8 | **Attempts per request**: 1 call + at most 1 more (retry *or* regeneration, not both) | Retry/regenerate loops | 2, hard-coded |
 | 9 | **Daily call cap** `DAILY_AI_CALL_CAP` | Backstop if price config is wrong | 500 |
@@ -302,6 +302,15 @@ Design goal: **switching `GEMINI_API_KEY` to a paid key must not be able to prod
 
 When layers 6, 9, or 10 trip: **cache-only mode** (serve an unseen cached story, else a themed "the spirits are resting" message). Log a warning at 80% of any daily/monthly cap.
 
+> **As built (Phase 4)** — `limits/costGate.ts`, `limits/store.ts`, `config.ts`:
+> - Per-IP limit runs once per request, **after** the input guard: typos and rejected attempts never reach the AI, so they don't use up an honest user's allowance. → 429 `rate_limited` with the real wait (`retryAfterSeconds` + `Retry-After`).
+> - Before **every** AI call (retries included), cheapest first: kill switch → prompt ceiling → app RPM → app RPD → concurrency lease → budget reservation.
+>   - Short-lived refusals (app RPM, concurrency) → 429 with a wait time (concurrency: 5 s).
+>   - Lasting ones (kill switch, RPD, daily calls, daily/monthly $) → cache-only mode: 503 `unavailable` with the resting message (Phase 5 serves a cached story first).
+>   - A refusal on the second attempt → plain 503.
+> - The "day" is the **Pacific** date, because Google's daily quota resets at midnight Pacific. Money is stored as integer micro-dollars so sums never drift.
+> - Every call logs `[cost] call $X (in, out, thinking) · today $Y of $cap · N calls`, and warns at 80% of the daily and monthly caps.
+
 ### 8.2 Budget reservation (stops parallel overshoot)
 
 Checking the budget *after* a call lets 20 parallel requests all pass a check that only one of them should pass. So:
@@ -309,7 +318,7 @@ Checking the budget *after* a call lets 20 parallel requests all pass a check th
 1. Before the call, **reserve** the worst-case cost: `MAX_PROMPT_TOKENS × input price + MAX_OUTPUT_TOKENS × output price`.
 2. If `spent + reserved + this reservation > cap`, don't call.
 3. After the call, **reconcile**: replace the reservation with the real cost from the response's usage metadata (input, output, and thinking tokens).
-4. If the call fails, release the reservation. If the response has no usage metadata, keep the worst-case charge.
+4. If the provider answered with an error status (429, 401/403, 400, 5xx), nothing was billed: release the reservation. **If the call timed out or the network failed, keep the worst case**: the request may have been processed and billed, and we can't know. If the response has no usage metadata, keep the worst-case charge. Concurrency leases are released in every case.
 
 Phase 4 implements this with an in-memory store behind a `BudgetStore` interface. Phase 5 adds the Neon store.
 
@@ -328,11 +337,11 @@ AI_ENABLED=true
 GEMINI_MODEL=                 # confirm current Flash-Lite id in AI Studio
 PRICE_INPUT_PER_M_USD=0.30    # paid price, used for shadow cost on free tier
 PRICE_OUTPUT_PER_M_USD=2.50
-MAX_PROMPT_TOKENS=600
+MAX_PROMPT_TOKENS=900
 MAX_OUTPUT_TOKENS=300
 MAX_CONCURRENT_AI_CALLS=3
-APP_RPM_CAP=                  # ~80% of provider RPM from AI Studio
-APP_RPD_CAP=                  # ~80% of provider RPD from AI Studio
+APP_RPM_CAP=12                # 80% of 15 RPM (flash-lite); 8 for flash
+APP_RPD_CAP=1000
 PER_IP_PER_MINUTE=5
 PER_IP_PER_HOUR=30
 DAILY_AI_CALL_CAP=500
@@ -353,8 +362,8 @@ IP_SOURCE=socket              # socket (local) | vercel (reads x-real-ip, which 
 
 | Model | Input $/1M | Output $/1M | Typical call (~450 in + ~200 out) | Worst-case call (600 in + 300 out) | Worst-case request (2 calls) |
 | --- | --- | --- | --- | --- | --- |
-| Flash-Lite | ~$0.25–0.30 | ~$1.50–2.50 | ~$0.0006 | ~$0.0009 | ~$0.0019 |
-| Flash (promo through Dec 31, 2026) | ~$0.75 | ~$3.75 | ~$0.0011 | ~$0.0016 | ~$0.0032 |
+| Flash-Lite | ~$0.25–0.30 | ~$1.50–2.50 | ~$0.0005 (measured, below) | $0.00102 (900 in + 300 out) | $0.00204 |
+| Flash (promo through Dec 31, 2026) | ~$0.75 | ~$3.75 | ~$0.0009 | $0.0018 (900 in + 300 out) | $0.0036 |
 
 With the defaults, the most a paid key can cost is **$1/day and $10/month**, regardless of traffic or bugs in the retry logic. On the free tier the real cost is $0; the limit that matters is Google's rate limit, which our app-wide cap stays under.
 
@@ -367,7 +376,11 @@ With the defaults, the most a paid key can cost is **$1/day and $10/month**, reg
 | Shadow cost | **≈ $0.0004–0.0005 per call** at $0.30 / $2.50 per 1M, so the $1 daily cap ≈ 2,000+ calls |
 | Latency | Typically 1.9–3.7 s, but a heavy tail: one call took 9.97 s and **2 of 16 hit the 10 s timeout** |
 
-> **Phase 3 input:** a ~12% timeout rate at 10 s is too high to ignore. Options: raise the per-attempt timeout to 12 s (two attempts still fit the 25 s Vercel request deadline) and rely on retry + cached fallback. Decide with the failure suite in Phase 3.
+> **Phase 3 decision:** per-attempt timeout raised to 12 s; two attempts fit the 25 s request deadline (§7.3).
+
+**Measured (Phase 4, live through the cost gate, 5 real calls on `gemini-3.5-flash-lite`, Oct 22 2026):** 527 input tokens (the prompt grew slightly in Phase 2), 107–130 output, 0 thinking → **$0.000426–0.000484 per call**, latency 1.0–2.5 s. The $1 daily cap is ≈ 2,000 calls; the worst-case request (2 calls × $0.00102) is $0.002.
+
+**Latency is not stable.** On Oct 22 around 1 pm PT, flash-lite took 9–21 s even for a 3-word prompt (all model time; connect 0.04 s), so every story timed out and the app answered with a polite 503. Twenty minutes later it answered in 0.8 s. Flash answered in about 1 s throughout, but hit its 10 RPM limit quickly. Switching models is one line (`GEMINI_MODEL`); set `APP_RPM_CAP=8` when using flash.
 
 ---
 
