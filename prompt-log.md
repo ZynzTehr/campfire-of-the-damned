@@ -113,3 +113,16 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   - **Language:** added an optional `language` enum to `SPEC.md` (`en | es | fr | pt | de | it`, default `en`, Latin scripts only so the output check stays simple). The language is only ever chosen through this field, never inferred from the words, so typing "spanish" can't switch it. The "English only" output check became "matches the requested language". Fallback if time runs short: set the enum to `["en"]` and hide the picker.
   - **Phase 1 (`phase-1-scaffold`):** Vite+ pnpm workspace with `apps/web` (React TS, Tailwind 4 for layout, custom CSS tokens, jsdom tests) and `apps/api` (Hono, strict TS, Node runs the `.ts` sources directly). Both apps have a network tripwire in test setup. Tests were written first and seen failing: web (one `h1`, no network on render) and API health (exact `{"ok":true}` body, JSON 404 for unknown routes, traversal paths, and wrong methods; a thrown error carrying a fake `DATABASE_URL` returns a generic 500 with no secret). Results: 11/11 tests green, `tsc` clean, live `curl` against the running server checked, `.env.example` committed with placeholders only, `.env` confirmed git-ignored, secret scan of the staged diff clean.
 - **Problems hit:** `vp create vite` hung on an interactive prompt, and `vp create --directory` refuses paths outside the current folder. Fixed by running `create-vite` non-interactively and then `vp migrate` from the workspace root.
+
+---
+
+### Entry 10
+
+- **Timestamp:** 2026-10-22 11:07:43 / 11:18:08
+- **Prompt:**
+  > Push it to GitHub.
+  >
+  > Created a Gemini API key; it's in the `.env` file.
+- **Goal:** Publish Phase 1, then get the AI key working for Phase 2.
+- **Action Taken:** Scanned the unpushed commits and pushed `main` to GitHub. Checked the key by listing the available models (HTTP 200) without printing it, and set `GEMINI_MODEL=gemini-3.5-flash-lite` (newest stable Flash-Lite) in `.env`. Switched to `phase-2-ai-call` and fast-forwarded it to `main`. Turned the ad hoc secret scan into `scripts/scan-secrets.sh` (`vpr scan:secrets`). It checks tracked and staged files for both Google key formats, Postgres URLs with passwords, and tracked `.env` files. Proved it works both ways: a canary file with a fake key fails the scan, and the clean tree passes. Rescanned all git history with the new patterns: 0 matches.
+- **Mistake caught in my own work:** the secret scan I ran before the push only matched `AIza…` keys, but the real key uses the newer `AQ.` format, so the scan would have missed it. Nothing leaked; the key was never committed. Also, opening `.env` in the editor sent the key into the chat, so it should be rotated after the demo.
