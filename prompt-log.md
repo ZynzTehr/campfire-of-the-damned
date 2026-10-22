@@ -77,3 +77,14 @@ Local prompt history and build log for tracking iterations, model calls, decisio
 - **Goal:** Record the decisions and make the cost cap safe for a paid API.
 - **Action Taken:** Updated `SPEC.md`. Corrected two assumptions: free-tier limits are per project and per model and change over time, so read them from AI Studio instead of assuming 15 RPM; a new key in the same project shares the same quota. Rewrote the cost cap as 11 layers: kill switch, prompt and output token caps, per-IP and app-wide limits, concurrency cap, max 2 attempts per request, daily call cap, daily/monthly dollar caps with reservation before each call, and fail-closed config validation. Added shadow-cost tracking on the free tier, parallel-overshoot tests, and a Neon usage schema with atomic reservation. Resolved the open questions.
 
+---
+
+### Entry 7
+
+- **Timestamp:** 2026-10-22 10:21:30
+- **Prompt:**
+  > When a user prompts, did you consider a user trying to get our AI to assume a character personality, or to respond in a way that falls outside our intent for this app?
+- **Goal:** Check whether the spec covers persona hijacking and out-of-intent output, and close the gaps.
+- **Action Taken:** Only partly covered before (generic injection rules, no persona or format/language checks). Added §7.4 "Intent boundary" to `SPEC.md`: words may flavor the story but can't change narrator, format, language, rating, or purpose. Added prompt rule 9, a `tampering` flag in the output schema, sorted JSON word lists, a cross-slot phrase check, and output checks for prose format, English, in-character voice, and third-person narration. Added a threat-model row and a persona/drift test suite with over-blocking checks.
+- **Mistakes caught in my own draft:** (1) blocking `dan` and `mode` as single words would have rejected a ghost named Dan; narrowed to `dan mode` / `developer mode`. (2) Banning `rules` and `here's` anywhere would reject normal prose; limited to position-specific checks. (3) Sorting words to break up sentences can *create* a phrase (`as act dan` → `act as dan`); the phrase check now runs on both the typed and the sorted order, with a test.
+
