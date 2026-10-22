@@ -1,20 +1,13 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { FakeAiClient, storyResult } from '../src/ai/fakeClient.ts'
+import { echoStory, storyResult, type FakeStep } from '../src/ai/fakeClient.ts'
 import { AiError } from '../src/ai/types.ts'
-import { createApp } from '../src/app.ts'
 import { MESSAGES } from '../src/messages.ts'
+import { makeApp } from './helpers.ts'
 
 const goodRequest = { setting: 'haunted-attic', words: ['teacup', 'lullaby', 'rust'] }
 
-function setup(...steps: ConstructorParameters<typeof FakeAiClient>) {
-  const ai = new FakeAiClient(...(steps.length ? steps : [storyResult()]))
-  const app = createApp({ ai, newId: () => 'story-id-1' })
-  const post = (body: unknown) =>
-    app.request('/api/story', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: typeof body === 'string' ? body : JSON.stringify(body),
-    })
+function setup(...steps: FakeStep[]) {
+  const { ai, post } = makeApp(steps.length ? steps : [storyResult()])
   return { ai, post }
 }
 
@@ -69,7 +62,7 @@ describe('POST /api/story: bad requests never reach the AI', () => {
     ['4 words', { ...goodRequest, words: ['a', 'b', 'c', 'd'] }],
     ['0 words', { ...goodRequest, words: [] }],
     ['words as string', { ...goodRequest, words: 'teacup' }],
-    ['word with a space', { ...goodRequest, words: ['ignore all'] }],
+    ['word with a space', { ...goodRequest, words: ['old house'] }],
     ['25-char word', { ...goodRequest, words: ['a'.repeat(25)] }],
     ['unknown setting', { ...goodRequest, setting: 'moon-base' }],
     ['setting with different case', { ...goodRequest, setting: 'Haunted-Attic' }],
@@ -89,7 +82,7 @@ describe('POST /api/story: bad requests never reach the AI', () => {
 
   it('accepts legit near-misses (over-blocking check)', async () => {
     for (const words of [["don't"], ["jack-o'-lantern"], ['café'], ['naïve'], ['Ñandú'], ['13th']]) {
-      const { post } = setup()
+      const { post } = setup(echoStory)
       const res = await post({ ...goodRequest, words })
       expect(res.status, JSON.stringify(words)).toBe(200)
     }

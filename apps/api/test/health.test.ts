@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { FakeAiClient, storyResult } from '../src/ai/fakeClient.ts'
-import { createApp as createAppWithDeps } from '../src/app.ts'
+
+import { makeApp } from './helpers.ts'
 import { MESSAGES } from '../src/messages.ts'
 
-const createApp = () => createAppWithDeps({ ai: new FakeAiClient(storyResult()) })
+const createApp = () => makeApp().app
 
 describe('GET /api/health', () => {
   it('returns 200 { ok: true } as JSON', async () => {

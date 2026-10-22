@@ -1,82 +1,133 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import type { AiClient } from './ai/types.ts'
+import { bodyLimit } from 'hono/body-limit'
+import { AiError, type AiClient, type AiResult } from './ai/types.ts'
+import { checkInput } from './guards/input.ts'
+import { checkOutput } from './guards/output.ts'
 import { pickMessage } from './messages.ts'
-import { AiStory, StoryRequest } from './story.ts'
 
 export interface AppDeps {
   ai: AiClient
+  /** Same prompt and canary the AI client uses; the output guard checks for leaks of both. */
+  systemPrompt: string
+  canary: string
   newId?: () => string
   random?: () => number
+  sleep?: (ms: number) => Promise<void>
+  /** Whole-request budget across both attempts. Vercel maxDuration is 30 s (SPEC §15). */
+  requestDeadlineMs?: number
 }
+
+const MAX_BODY_BYTES = 1024
+/** 1 call + at most 1 more (retry OR regeneration), hard-coded (SPEC §8.1 layer 8). */
+const MAX_ATTEMPTS = 2
+/** Worth one more try. 429 / auth / bad request are not: retrying burns quota or can't help. */
+const RETRYABLE = new Set(['timeout', 'server', 'network'])
 
 /**
  * Builds the API. Every route lives under /api so the same app works behind
  * the Vite dev proxy locally and the single Vercel function in production.
- *
  * Dependencies are injected so tests pass fakes that simulate every failure.
- * Phase 3 adds input/output guards and retry; Phase 4 the cost layers.
  */
 export function createApp(deps: AppDeps) {
   const newId = deps.newId ?? (() => crypto.randomUUID())
   const random = deps.random ?? Math.random
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  const deadlineMs = deps.requestDeadlineMs ?? 25_000
   const app = new Hono().basePath('/api')
 
-  const invalid = (c: Context) => c.json({ ok: false, kind: 'invalid', message: pickMessage('invalid', random) }, 400)
-  const unavailable = (c: Context) =>
-    c.json({ ok: false, kind: 'unavailable', message: pickMessage('unavailable', random) }, 503)
+  const fail = (c: Context, kind: 'invalid' | 'rejected' | 'unavailable', status: 400 | 413 | 415 | 503) =>
+    c.json({ ok: false, kind, message: pickMessage(kind, random) }, status)
 
   app.get('/health', (c) => c.json({ ok: true }))
 
-  app.post('/story', async (c) => {
-    let body: unknown
-    try {
-      body = await c.req.json()
-    } catch {
-      return invalid(c)
-    }
-    const parsed = StoryRequest.safeParse(body)
-    if (!parsed.success) return invalid(c)
-    const { setting, language, words } = parsed.data
+  app.post(
+    '/story',
+    // 1. Size cap before anything is parsed (cost layer 2, input step 1).
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => fail(c, 'invalid', 413) }),
+    async (c) => {
+      // 2. JSON only.
+      const type = c.req.header('content-type') ?? ''
+      if (!/^application\/json(\s*;|$)/i.test(type)) return fail(c, 'invalid', 415)
 
-    // THE AI CALL. Only place the model is reached; the key never leaves the server.
-    let result
-    try {
-      result = await deps.ai.generate({ setting, language, words, avoid: [] })
-    } catch (err) {
-      console.warn('[story] ai call failed:', err instanceof Error ? err.name : 'unknown', (err as { kind?: string }).kind ?? '')
-      return unavailable(c)
-    }
+      let body: unknown
+      try {
+        body = await c.req.json()
+      } catch {
+        return fail(c, 'invalid', 400)
+      }
 
-    if (result.finishReason !== 'STOP') {
-      console.warn('[story] ai finishReason:', result.finishReason)
-      return unavailable(c)
-    }
+      // 3–8. Shape, normalization, injection/persona/profanity, word format.
+      const input = checkInput(body)
+      if (!input.ok) {
+        console.warn(`[story] input ${input.kind}: ${input.reason}`)
+        return fail(c, input.kind, 400)
+      }
+      const { setting, language, words } = input.value
+      const prompt = { setting, language, words, avoid: [] }
+      const guardCtx = { words, language, canary: deps.canary, systemPrompt: deps.systemPrompt }
+      const deadline = AbortSignal.timeout(deadlineMs)
 
-    let story: AiStory
-    try {
-      story = AiStory.parse(JSON.parse(result.text))
-    } catch {
-      console.warn('[story] ai reply failed schema')
-      return unavailable(c)
-    }
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        // Past the deadline: don't start another call (an already-aborted signal never fires 'abort').
+        if (deadline.aborted) {
+          console.warn(`[story] request deadline hit before attempt ${attempt}`)
+          return fail(c, 'unavailable', 503)
+        }
+        const last = attempt === MAX_ATTEMPTS
 
-    return c.json({
-      ok: true,
-      story: { id: newId(), title: story.title, body: story.body, spookFactor: story.spookFactor, setting, words },
-      source: 'ai',
-    })
-  })
+        // THE AI CALL. The only place the model is reached; the key never leaves the server.
+        let result: AiResult
+        try {
+          result = await withDeadline(deps.ai.generate(prompt, { signal: deadline }), deadline)
+        } catch (err) {
+          // Log the kind only: an error's message can carry URLs, upstream text, or the key.
+          const kind = err instanceof AiError ? err.kind : 'unexpected'
+          if (kind === 'auth') {
+            console.error(`[story] AI auth failed (HTTP ${(err as AiError).status ?? '?'}): check GEMINI_API_KEY`)
+          } else {
+            console.warn(`[story] attempt ${attempt} failed: ${kind}${kind === 'unexpected' ? ` (${(err as Error)?.name})` : ''}`)
+          }
+          if (last || !RETRYABLE.has(kind)) return fail(c, 'unavailable', 503)
+          if (kind === 'server') await sleep(200 + Math.floor(random() * 400))
+          continue
+        }
+
+        const checked = checkOutput(result, guardCtx)
+        if (checked.ok) {
+          const { title, body: text, spookFactor } = checked.story
+          return c.json({ ok: true, story: { id: newId(), title, body: text, spookFactor, setting, words }, source: 'ai' })
+        }
+
+        // The model itself flagged the input as an attempt to steer it: cheeky, and never regenerate.
+        if (checked.reason === 'tampering') {
+          console.warn('[story] model flagged tampering')
+          return fail(c, 'rejected', 400)
+        }
+        console.warn(`[story] attempt ${attempt} output rejected: ${checked.reason}`)
+        if (last) return fail(c, 'unavailable', 503)
+      }
+      return fail(c, 'unavailable', 503)
+    },
+  )
 
   // Unknown routes and wrong methods: same shape every time, nothing to probe.
   app.notFound((c) => c.json({ ok: false, kind: 'not_found' }, 404))
 
-  // Last line of defense: never echo the error. Its message can carry
-  // upstream text, SQL, or env values. Log server-side only.
+  // Last line of defense: never echo the error. Log the name only.
   app.onError((err, c) => {
     console.error('[api] unhandled error:', err.name)
-    return unavailable(c)
+    return fail(c, 'unavailable', 503)
   })
 
   return app
+}
+
+/** Rejects with a timeout when the deadline fires, even if the client ignores its signal. */
+function withDeadline<T>(work: Promise<T>, deadline: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new AiError('timeout'))
+    deadline.addEventListener('abort', onAbort, { once: true })
+    work.then(resolve, reject).finally(() => deadline.removeEventListener('abort', onAbort))
+  })
 }
