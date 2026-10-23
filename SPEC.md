@@ -619,11 +619,16 @@ Inside each phase, follow the build loop: **ask → review the diff → accept �
 
 ### Vercel
 
-- **One project:** Vite builds the web app to static files; `api/index.ts` wraps the Hono app as a Node.js function (`@hono/node-server/vercel` `handle`). `vercel.json` rewrites `/api/*` to the function and everything else to `index.html`. Confirm the exact wiring against Vercel's and Hono's docs when we get there; don't guess.
+- **One project, two services** (`vercel.json`, [Vercel Services](https://vercel.com/docs/services)):
+  - `web` (`apps/web`, Vite): static build, public at `/(.*)`.
+  - `api` (`apps/api`, Hono): public at `/api/(.*)`. Entry `src/vercel.ts` default-exports the app from `wire.ts` (shared with the local `server.ts`). Vercel passes the full path (`/api/story`), which matches `basePath('/api')`.
+  - **No bindings:** the web app is static, so the browser calls `/api` on the same origin through the public rewrite. The API calls only external services (Gemini, later Neon).
+  - A bad config on Vercel doesn't crash: every `/api` route answers 503 with the "resting" message and the problem names go to the function logs. Config requires `STORE=neon` and `IP_SOURCE=vercel` there (client IP from the platform-set `x-real-ip`; `x-forwarded-for` is never read), so **until Phase 5 lands, the deployed API answers "resting".**
+
 - **Same origin:** web and API share one domain, so `ALLOWED_ORIGIN` is the production URL and CORS stays strict.
 - **Function timeout:** Vercel's default is far longer than we need. Set `maxDuration: 30` in `vercel.json` and enforce our own 25 s deadline per request (2 attempts × 10 s plus DB time), so a hung call can't run up function time.
 - **Database:** Neon's serverless driver over HTTP with the **pooled** connection string; serverless functions open many short connections.
-- **Security headers** in `vercel.json`: CSP (no inline scripts, `connect-src 'self'`), `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `frame-ancestors 'none'`.
+- **Security headers** in `vercel.json`: CSP (`default-src 'self'`, no inline scripts or styles, `img-src 'self' data:` for the select chevron, `connect-src 'self'`; checked against the production build in a real browser with no violations), `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `frame-ancestors 'none'`.
 - **Environments:**
 
   | Vercel environment | `GEMINI_API_KEY` | `AI_ENABLED` | `STORE` | Neon branch |

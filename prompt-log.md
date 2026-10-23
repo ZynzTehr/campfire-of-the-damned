@@ -237,3 +237,24 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   2. `tsc -b` failed on the test file (untyped `vi.fn` made `mock.calls` an empty tuple) even though every test passed. Vitest doesn't type-check, so the build is part of the gate.
   3. First screenshots: the forest and fog sat at the bottom of the long page, behind the form, so they were invisible at the top. Made the scene layers `fixed`. The moon rendered as a grey smudge (removed), and the far trees came out lighter than the sky (darkened).
   4. A browser subagent was pointed at port 5173, which was another of the user's apps. Moved this app to 5180 instead of stopping it.
+
+---
+
+### Entry 16
+
+- **Timestamp:** 2026-10-22 17:10:10
+- **Prompt:**
+  > Configure this repository to deploy on Vercel as a project with multiple services (suggested `vercel.json` with `api` = `apps/api` Hono and `web` = `apps/web` Vite, `/api/(.*)` → api, `/(.*)` → web). Add bindings for internal services, update the code to match the routing and bindings, and confirm service names, public routes and bindings before finishing.
+- **Goal:** Phase 7 wiring: one Vercel project with two services, without weakening the guardrails.
+- **Action Taken:**
+  - Read Vercel's services, routing, config-reference and Hono docs first. Key fact: a service receives the **original path** (`/api/story`), which already matches the API's `basePath('/api')`, so no path changes were needed.
+  - **Entry point:** Vercel's Hono detection would have picked `src/app.ts` (a factory, not an app) or `src/server.ts` (starts a Node server and calls `process.exit`). Added `src/vercel.ts` and set `entrypoint` explicitly. Moved the wiring into `src/wire.ts`, shared by `server.ts` and `vercel.ts`.
+  - **Fail closed on Vercel:** a bad config answers every `/api` route with the polite resting 503 instead of a raw 500. Problem names (never values) go to the logs.
+  - **Client IP:** new config rule: on Vercel `IP_SOURCE` must be `vercel`. Otherwise every visitor shares the proxy's address and one person could rate-limit everyone. Only `x-real-ip` is read; `x-forwarded-for` is never trusted.
+  - **No bindings:** the web app is static (the browser calls `/api` through the public rewrite), and the API calls only external services.
+  - **Security headers** from SPEC §15 added to `vercel.json`. The production build was served with that exact CSP and checked in a real browser: no violations, story generated.
+  - **Tests:** 434 API tests (+11) and `tsc` clean; 3 of 3 wiring mutations caught (socket IP on Vercel, trusting `x-forwarded-for`, crashing on bad config).
+- **Open:** until Phase 5 (Neon), the deployed API answers "resting" by design (config requires `STORE=neon` on Vercel). Not deployed yet; service names, routes and bindings are waiting for the user's confirmation.
+- **Mistakes caught in my own work:**
+  1. My first test expected the config problem in the error message; `ConfigError` keeps problems in `.problems` and has a generic message. Fixed the test.
+  2. My new test file imported `VALID_ENV` from `config.test.ts`, which would have run every config test twice. Moved it to `test/env.ts`.
