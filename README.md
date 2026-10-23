@@ -29,7 +29,7 @@
 
 ---
 
-> Built for the bootcamp Day 4 brief: a single AI feature engineered for **control + reliability**. The secret API key never touches the browser, the system prompt stays hardcoded on the backend, three independent guardrails catch adversarial attempts before and after generation, and an atomic 11-layer cost gate prevents parallel budget overshoot.
+> A single AI feature engineered for **control + reliability**. The secret API key never touches the browser, the system prompt stays hardcoded on the backend, three independent guardrails catch adversarial attempts before and after generation, and an atomic 11-layer cost gate prevents parallel budget overshoot.
 
 ## What You Get
 
@@ -37,19 +37,19 @@
 <tr>
 <td width="50%">
 
-### 🕯️ Atmospheric Campfire Experience
+### Atmospheric campfire experience
 5 reactive flame moods (`idle`, `flare`, `dim`, `cold`, `smoulder`), Web Audio crackle synthesis (user-toggled, 0 byte downloads), eerie teal eye surveillance on tampering, and responsive mist layers.
 
-### 🛡️ Strict Narrative Intent Boundary
+### Strict narrative intent boundary
 Up to 3 words flavor the story, but cannot alter the narrator, language, rating, or format. Cross-slot phrase stitching and Cyrillic/Greek homoglyph attacks are neutralized before touching the LLM.
 
 </td>
 <td width="50%">
 
-### 💰 Atomic 11-Layer Cost Protection
+### Atomic 11-layer cost protection
 Multi-instance rate and budget enforcement backed by Neon Postgres. Advisory locks and pre-call row reservations prevent parallel overshoot (e.g., 20 parallel requests against a cap of 3 admit exactly 3).
 
-### ⚡ Fail-Closed Resilience
+### Fail-closed resilience
 Hard 25s execution deadlines, retry jitter (200–600 ms) strictly reserved for transient 5xx/network errors (never on 429s or tampering), graceful degradation, and zero leaked stack traces or database URLs.
 
 </td>
