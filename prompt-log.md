@@ -314,5 +314,119 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   - Removed decorative emojis (`🕯️`, `🛡️`, `💰`, `⚡`) from the headings in `README.md` and standardized them into clean sentence case.
   - Re-scanned `README.md` to confirm zero emojis remain.
   - Verified `./scripts/scan-secrets.sh` remains clean.
+---
 
+## Entry 21
 
+- **Prompt:**
+  > Push to GitHub.
+- **Goal:** Push latest local commits to the remote repository.
+- **Action Taken:**
+  - Verified working tree was clean and ran git status and git remote verification.
+  - Pushed `main` to `origin/main` on GitHub (`ZynzTehr/campfire-of-the-damned`), fast-forwarding cleanly to `1e91bb4`.
+
+---
+
+## Entry 22
+
+- **Prompt:**
+  > What are our budget limits?
+- **Goal:** Provide exact accounting of the active cost controls, rate limits, and budget thresholds governing the application.
+- **Action Taken:**
+  - Detailed the dual hard budget limits enforced via the cost layer: $1.00 daily spend cap and $10.00 monthly spend cap backed by Neon Postgres.
+  - Outlined rate limit thresholds: app-wide 12 requests/minute and 1,000 calls/day, alongside per-client limits of 5 requests/minute and 30 requests/hour, with max 3 concurrent requests.
+  - Documented unit economics: worst-case cost per story generation call is $0.00102 on Gemini 3.5 Flash Lite, with observed real-world costs averaging ~$0.00045 to $0.00051 per story.
+
+---
+
+## Entry 23
+
+- **Prompt:**
+  > Do we keep track of IP, are we the ones limiting that, or is it Gemini? How many tokens do we get with that $25?
+- **Goal:** Clarify how client IP tracking and rate limiting are implemented, and calculate the token volume provided by a $25 Gemini API balance.
+- **Action Taken:**
+  - Clarified that client IP rate limiting is implemented entirely by our backend in Hono, extracting client IP from headers (`x-forwarded-for`, `x-real-ip`) and recording timestamps in sliding-window tables in Neon Postgres, preventing abuse before reaching Gemini.
+  - Calculated exact token purchasing power on Gemini 3.5 Flash Lite pricing ($0.075 / 1M input tokens, $0.30 / 1M output tokens): a $25 credit yields approximately 50 to 55 million total tokens, or roughly 50,000 to 55,000 complete Halloween story generations.
+
+---
+
+## Entry 24
+
+- **Prompt:**
+  > Is that the main reason we used the Hono API?
+- **Goal:** Explain why Hono API was selected as the backend architecture and framework.
+- **Action Taken:**
+  - Explained the primary architectural reasons for Hono:
+    1. Zero-leak server boundary: Keeping the API key strictly server-side so it cannot be inspected or extracted in client browser bundles.
+    2. Multi-tier defensive firewall: Running strict input sanitization, blocklist matching, and response validation before and after LLM generation.
+    3. Cross-platform runtime portability: Hono runs identically across Node.js (local dev), Vercel Serverless/Edge functions, Cloudflare Workers, and Deno without code modifications.
+    4. Minimal footprint and high throughput: Negligible cold-start latency and tiny memory footprint compared to heavier frameworks.
+
+---
+
+## Entry 25
+
+- **Prompt:**
+  > Stop port 5173 and the ones you used for this app; I believe it was 5180 and 5181, and stop others you used as well.
+- **Goal:** Terminate all background processes, dev servers, and API servers running on ports 5173, 5180, 5181, and 8787.
+- **Action Taken:**
+  - Terminated background dev tasks for the web frontend (`task-698` on port 5180) and the Hono API server (`task-915` on port 8787).
+  - Inspected active network listeners using `lsof -iTCP:5173,5180,5181,8787 -sTCP:LISTEN`.
+  - Found lingering Vite process on port 5173 (PID 18418) and terminated it with SIGKILL.
+  - Re-verified with `lsof`: all target ports (5173, 5180, 5181, 8787) confirmed fully freed with zero remaining listening processes.
+
+---
+
+## Entry 26
+
+- **Prompt:**
+  > What are we using to prevent bad intentions from users? Prompt injection, etc.
+- **Goal:** Document the complete multi-layer security and prompt injection defense architecture across the application.
+- **Action Taken:**
+  - Outlined the 6 defense layers in detail:
+    1. Transport & schema boundary: 2 KB body size limit, JSON enforcement, strict Zod schema rejecting unexpected keys.
+    2. Input guard: NFKC Unicode normalization, invisible/zero-width character removal, homoglyph folding (Cyrillic/Greek to Latin), markup/delimiter block (`< > { } [ ] \` | \\`), order-insensitive jailbreak/steering blocklist, and strict regex (letters/hyphens/numbers only, no spaces within words).
+    3. Structural prompt isolation: Gemini native `systemInstruction` separation, JSON serialization of sorted ingredients to prevent command sequencing, and standing Rule 5 instructing the model to flag tampering.
+    4. Constrained decoding: Native Gemini `responseSchema` forcing rigid JSON output structure.
+    5. Output guard: Tampering flag detection, boot-time canary token inspection, 6-word prompt shingle leak detection, markup filter, and third-person narrator style enforcement.
+    6. Cost & abuse limiters: Sliding-window IP rate limits, concurrency gates, and hard dollar budget caps.
+
+---
+
+## Entry 27
+
+- **Prompt:**
+  > What is the reason for the skulls at the end of the story?
+- **Goal:** Explain the purpose and implementation of the glowing skulls rendered below the story parchment.
+- **Action Taken:**
+  - Explained that the skulls represent the "Spook Factor" rating meter (a 1-to-5 horror intensity score).
+  - Clarified that Gemini evaluates its own story against a dread scale (1 = unsettling to 5 = bone-chilling) and returns the score in its structured response schema.
+  - Described the front-end presentation in `Tale.tsx` and CSS animations that sequentially ignite the skulls with amber fire glow when the tale finishes typing.
+
+---
+
+## Entry 28
+
+- **Prompt:**
+  > It is always a 4 though; I haven't seen any other rating. How do I get it to give a different rating, by requesting a less spooky story?
+- **Goal:** Explain why story ratings heavily cluster at 4 out of 5 and whether users can request less spooky stories under the current architecture.
+- **Action Taken:**
+  - Explained the two root causes:
+    1. System prompt directive bias: The Campfire Keeper is instructed to evoke deep psychological horror and lingering dread, causing the model to judge its own stories as highly spooky.
+    2. LLM rating distribution bias (grade inflation): Models typically cluster around 4/5 on subjective integer scales without strict rubric calibration.
+  - Clarified that the current form accepts only setting and ingredient objects, and prompt rules intentionally prevent ingredient words from altering the horror tone.
+  - Outlined potential improvements: adding explicit score rubrics (1 = melancholic ghost, 5 = inescapable doom) or adding a dread intensity selector.
+
+---
+
+## Entry 29
+
+- **Prompt:**
+  > Sure, we can do that, but can the user be the one to rate the story so that the model can use that for reference, since the model is biased in grading its own stories?
+- **Goal:** Evaluate user-driven ratings for stories and design a human-in-the-loop feedback mechanism to steer model generations.
+- **Action Taken:**
+  - Validated that human-in-the-loop rating eliminates AI self-grading bias and enhances interactive engagement.
+  - Designed an interactive skull rating UI where readers can hover and click skulls (1–5) to submit their verdict.
+  - Explored two model steering architectures:
+    - Session-level dynamic calibration: Passing the user's previous rating on the next generation so the Campfire Keeper immediately reacts to whether the reader wanted more or less dread.
+    - Global benchmark library: Storing user ratings in Neon Postgres and injecting 5-star community favorites as few-shot exemplars in the prompt.
