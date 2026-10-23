@@ -38,3 +38,25 @@ Thumbs.db
 
 # Local notes & briefs
 requirements.md
+
+# Local agent records, backups, and locks
+/.agents/
+/AGENTS.md
+/.prompt-log.lock/
+/.prompt-log.flock
+/.agent-usage.jsonl
+/.agent-usage.lock
+/.agent-usage-*.tmp
+/budget-report.md
+/PROGRESS.md
+/.agents-backup-*/
+/.agents-staging-*/
+/.myagent-install.lock/
+/.myagent-hooks.lock/
+/.myagent-hooks-backup-*/
+/.myagent-hooks-stage-*/
+/.agents/**/__pycache__/
+/.agent-evidence.jsonl
+/.agent-evidence.lock
+/.agents/**/node_modules/
+/.claude/settings.local.json

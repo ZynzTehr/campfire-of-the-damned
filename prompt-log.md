@@ -281,3 +281,38 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   - Ran `pnpm install`, verified clean `tsc` and 467/467 passing API tests, 44/44 web tests, and full monorepo build.
 - **Mistakes caught in my own work:**
   - The API had been pinned to TypeScript 7.0.2 via the catalog while `apps/web` was on 6.0.3; harmonizing on 6.0.3 resolves the Vercel builder incompatibility.
+
+---
+
+## Entry 19
+
+- **Prompt:**
+  > Animate the transitions between the campfire disappearing and the story appearing; make them smooth. Check what is supposed to be the campfire ground glow: it is not low enough, it sits at the same level as the wood.
+- **Goal:** Lower the campfire ground glow so it rests cleanly on the ground plane below the firewood rather than across the wood logs, and create seamless, cinematic CSS transitions between the campfire, the ritual form, and the story parchment.
+- **Action Taken:**
+  - **Ground glow and pit depth**:
+    - Reordered the SVG elements in `Fire.tsx` so the glowing ember bed is rendered underneath the wood logs instead of over them, lowered the coal plane to `cy="52"`, and added a warm core ember bed.
+    - Introduced a dedicated `.fire__ground-glow` element positioned at `bottom: -16px` on the dirt floor beneath the fire with a soft blurred radial gradient, grounding the logs in physical space. Adjusted the ambient air aura `.fire__glow` to sit higher around the flames.
+  - **Smooth scene transitions**:
+    - Converted `.stage` into a CSS Grid overlay (`grid-template-areas: 'stage-view'`) so `.stage__fire-wrap` and `.stage__tale-wrap` occupy the identical visual center without layout push or jump.
+    - Added staggered entry/exit transitions: when story generation finishes, the fire softly sinks and fades into the dark (`0.65s`), while the story parchment glides up smoothly with a subtle scale and blur resolution (`0.85s` with `0.2s` stagger).
+    - Wrapped the ritual form in a modern collapsible `.ritual-drawer` using `grid-template-rows: 1fr` to `0fr` for fluid, zero-delay collapse and expansion.
+    - Added an exit animation timer for the "Rekindle the fire" action so the story gracefully dissolves into shadows before unmounting, while preserving instant clearing for reduced-motion users and automated tests.
+  - **Verification**:
+    - Verified all 512 tests across API and Web pass cleanly (0 failures).
+    - Verified live in the browser at `http://localhost:5180/` with screenshots and video recording: confirmed the ground glow sits on the soil below the logs, campfire cross-fades into the story smoothly without layout jumping, and rekindling dissolves the tale and restores the fire seamlessly.
+
+---
+
+## Entry 20
+
+- **Prompt:**
+  > Remove emojis from the README; use custom images if you are going to use icons or decorative elements.
+- **Goal:** Remove all Unicode emojis from `README.md` and format the headings into clean sentence case.
+- **Action Taken:**
+  - Audited `README.md` using a script to identify every emoji in the document (isolated lines 40, 43, 49, and 52 in the feature overview table).
+  - Removed decorative emojis (`🕯️`, `🛡️`, `💰`, `⚡`) from the headings in `README.md` and standardized them into clean sentence case.
+  - Re-scanned `README.md` to confirm zero emojis remain.
+  - Verified `./scripts/scan-secrets.sh` remains clean.
+
+
