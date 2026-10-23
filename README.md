@@ -21,6 +21,12 @@
   <img src="https://img.shields.io/badge/Vercel-Multi--Services-000000?style=for-the-badge&logo=vercel&logoColor=white" alt="Vercel" />
 </p>
 
+<p align="center">
+  <a href="https://campfire-of-the-damned-five.vercel.app">
+    <img src="https://img.shields.io/badge/Live_Demo-campfire--of--the--damned--five.vercel.app-ff6600?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo" />
+  </a>
+</p>
+
 ---
 
 > Built for the bootcamp Day 4 brief: a single AI feature engineered for **control + reliability**. The secret API key never touches the browser, the system prompt stays hardcoded on the backend, three independent guardrails catch adversarial attempts before and after generation, and an atomic 11-layer cost gate prevents parallel budget overshoot.
@@ -256,7 +262,7 @@ The application is deployed on **Vercel** as a unified project using **Vercel Mu
 | :--- | :--- | :--- | :--- | :--- |
 | **Local** | `http://localhost:5180` | `http://localhost:8787/api` | `memory` or `neon` | `socket` |
 | **Preview** | Vercel Preview URL | `/api/*` (rewrite to `api`) | `neon` (test branch) | `vercel` |
-| **Production** | Vercel Production URL | `/api/*` (rewrite to `api`) | `neon` (production branch) | `vercel` |
+| **Production** | [campfire-of-the-damned-five.vercel.app](https://campfire-of-the-damned-five.vercel.app) | `/api/*` (rewrite to `api`) | `neon` (production branch) | `vercel` |
 
 ### Vercel Multi-Services Configuration
 
