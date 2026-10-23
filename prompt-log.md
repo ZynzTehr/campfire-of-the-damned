@@ -258,3 +258,26 @@ Local prompt history and build log for tracking iterations, model calls, decisio
 - **Mistakes caught in my own work:**
   1. My first test expected the config problem in the error message; `ConfigError` keeps problems in `.problems` and has a generic message. Fixed the test.
   2. My new test file imported `VALID_ENV` from `config.test.ts`, which would have run every config test twice. Moved it to `test/env.ts`.
+
+### Entry 17
+
+- **Timestamp:** 2026-10-22 17:36:40
+- **Prompt:**
+  > (Answering "Phase 5 or deploy first?") Build Phase 5 (Neon) first, then deploy.
+  >
+  > Set up Neon: 1. `npm i -g neon@latest` 2. `neon init -y --org-id org-quiet-leaf-53379359 --project-id old-field-77930437 --branch production --services postgres` 3. `neon deploy` 4. Wire each service into the code following the Neon skills. 5. Prove it works: the build must pass, then start the app and test each wired service end to end. 6. Report what changed, the command output that proves step 5, and anything that failed.
+- **Goal:** Shared limits in Neon, so rate limits, the budget and the concurrency cap hold across Vercel instances (required before the deploy can serve stories).
+- **Action Taken:**
+  - Ran the three Neon commands. `neon init` failed until I ran it with `npm_config_force=true`: the repo's `devEngines` (pnpm) makes every npm call in the repo exit with `EBADDEVENGINES`. `neon deploy` reported no changes and pulled `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `NEON_BRANCH` into `.env`.
+  - Created a Neon branch `test` for integration tests (production is never used by tests).
+  - Followed the Neon skill for Vercel: `pg` (node-postgres) plus `attachDatabasePool` from `@vercel/functions`; pooled URL for the app, unpooled URL for migrations; schema as code (`migrations/001_limits.sql`, `src/migrate.ts`, `scripts/migrate.ts`).
+  - Wrote the LimitStore contract test first (13 cases, including parallel overshoot), then `NeonLimitStore`. Locks: row locks for the budget, advisory locks for rate limits and leases, `DELETE … RETURNING` for settle-once.
+  - Config: `STORE=neon` is allowed and requires `DATABASE_URL`; `STORE=memory` ignores it. `wire.ts` builds the pool and store; `vercel.ts` attaches the pool.
+  - Proof: 467 API tests (+33) and `tsc` clean; 44 web tests; root build clean; 4 of 4 lock mutations caught by the Neon contract. Migrated production (a second run says "up to date"). With `STORE=neon` locally: a story was served; the rows in production matched the cost log to the micro-dollar; after a server restart the per-IP limit still returned 429 and the day's total carried on ($0.002269, 5 calls).
+- **Deferred:** the story cache, seen-tracking, AVOID list, near-duplicate check and degraded mode. If Neon fails mid-request, requests fail closed with a 503.
+- **Mistakes caught in my own work:**
+  1. The contract test's lease cleanup was fired without `await`, so it could race the lease tests. Caught on review before the first run; moved it to an awaited `beforeEach`.
+  2. My first `reserve` used one global advisory lock and 9 round trips. The 20-way parallel test timed out (over 5 s from a laptop). Cut it to 5 round trips by locking the day and month rows with upsert … `RETURNING`: 2.2 s, still exactly 3 of 20.
+  3. My first mutation script for the reserve lock was garbled, so I skipped that mutation and redid it cleanly (caught).
+  4. I stopped the API server at the same moment as a request loop, which cut off two requests. The orphaned lease stayed held until its 30 s expiry: an accidental demonstration that a crashed request can't hold a slot forever.
+  5. My config and wiring tests used fake database URLs with a username and password in them. The secret scan blocked the commit (it matches any URL with credentials). Switched to credential-free fakes; the scan stays strict. (Writing the URL shape into this entry tripped the scan a second time.)

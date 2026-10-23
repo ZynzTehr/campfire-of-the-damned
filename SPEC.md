@@ -50,7 +50,7 @@
 | Backend | **Hono on Node (TypeScript)** | Small, typed, and `app.request()` lets tests hit routes without opening a port. Swap for Express only if there's a reason. |
 | Validation | **Zod** | One schema shared by request validation and AI output validation. |
 | AI client | **Gemini REST API via `fetch`** (no SDK) | One `generateContent` call in `ai/geminiClient.ts` with an injectable `fetch`, so adapter tests replay recorded real responses without the network and every HTTP error maps to a kind we control. Decided in Phase 2 instead of `@google/genai`: fewer dependencies and nothing hidden between us and the wire. Model id comes from env. |
-| Database | **Neon Postgres** + `pg_trgm` | Story cache, seen-tracking, daily usage. Driver: `@neondatabase/serverless` (or `pg`). |
+| Database | **Neon Postgres** + `pg_trgm` | Shared limits (built), story cache and seen-tracking (planned). Driver: `pg` (node-postgres) with `attachDatabasePool` from `@vercel/functions` on Vercel (Neon's guide for Fluid compute). |
 | Secrets | `.env` (git-ignored) + committed `.env.example`; Vercel env vars in production | `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`, `ALLOWED_ORIGIN`, plus the cost settings in [§8](#8-cost-cap). |
 | Hosting | **Vercel** (web as static files, API as one Hono function); local as demo fallback | See [§15](#15-deployment-vercel-and-local-fallback). |
 
@@ -320,11 +320,11 @@ Checking the budget *after* a call lets 20 parallel requests all pass a check th
 3. After the call, **reconcile**: replace the reservation with the real cost from the response's usage metadata (input, output, and thinking tokens).
 4. If the provider answered with an error status (429, 401/403, 400, 5xx), nothing was billed: release the reservation. **If the call timed out or the network failed, keep the worst case**: the request may have been processed and billed, and we can't know. If the response has no usage metadata, keep the worst-case charge. Concurrency leases are released in every case.
 
-Phase 4 implements this with an in-memory store behind a `BudgetStore` interface. Phase 5 adds the Neon store.
+Phase 4 built this with an in-memory store behind the `LimitStore` interface (`limits/store.ts`). Phase 5 added `NeonLimitStore` (`limits/neonStore.ts`). One contract test runs against both stores, the Neon one on the dedicated `test` branch, including the parallel cases (20 reserves against a cap that fits 3 → exactly 3; 20 hits with max 5 → 5; 10 leases with max 3 → 3). Atomicity: `reserve` holds the day row, then the month row, until commit (upsert … `RETURNING`); `hit` and `acquireLease` take a transaction-scoped advisory lock; `settle` is `DELETE … RETURNING`, so it applies once. Each guard was removed in turn and a contract test failed (4 of 4).
 
 **On Vercel, in-memory limits don't work.** Each request can land on a different function instance, and instances start and stop on their own, so an in-memory counter resets constantly. Every limit that must hold across requests lives in Neon in production: per-IP and app-wide rate limits, the daily/monthly budget, and the concurrency cap (as short-lived "lease" rows that expire after 30 s, so a crashed function can't hold a slot forever). Memory stores are for tests and local dev only.
 
-**Fail-closed rule:** if the server detects it's running on Vercel (`VERCEL` env var is set) and `STORE` isn't `neon`, it refuses to start.
+**Fail-closed rule:** if the server detects it's running on Vercel (`VERCEL` env var is set) and `STORE` isn't `neon`, it refuses to start. `STORE=neon` without `DATABASE_URL` also refuses. If Neon fails mid-request, the store error reaches the top-level handler and the request gets a 503 (fail closed). Degraded mode (`DEGRADED_AI_CALLS_PER_HOUR`) is not built yet.
 
 ### 8.3 Fail-closed config
 
@@ -389,6 +389,8 @@ With the defaults, the most a paid key can cost is **$1/day and $10/month**, reg
 Two goals pull against each other: reuse stories to save tokens, and don't show anyone a repeat. Resolution: **reuse a cached story only for a client that hasn't seen it, and steer new generations away from recent premises.**
 
 ### Schema (Neon)
+
+> **Status:** the limit tables are built (`apps/api/migrations/001_limits.sql`: `rate_hits`, `usage_day`, `usage_month`, `reservations`, `leases`; money as integer µUSD, matching the `LimitStore` interface; applied by `scripts/migrate.ts` over the **unpooled** URL and tracked in `schema_migrations`). They replace the `ai_usage` table sketched below. `stories` and `story_views` (the cache) are **not built yet**.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -605,7 +607,7 @@ Inside each phase, follow the build loop: **ask → review the diff → accept �
 | 2 | `phase-2-ai-call` | Gemini client behind an interface, system prompt in code, structured output, `POST /api/story` happy path. Fake client for tests. Judge 5–10 real outputs. | A real story comes back from curl; tests green; committed **before** any guardrails. |
 | 3 | `phase-3-guardrails` | Input guard, output guard, failure handling, messages, top-level error handler. Attack suites from §11 written first. | All three guard suites green; manual break attempts logged in prompt-log. |
 | 4 | `phase-4-cost-cap` | All §8 layers with an in-memory `BudgetStore`: config validation, kill switch, token caps, per-IP + app-wide limits, concurrency cap, reservation/reconcile, dollar + call caps, cache-only mode. Real cost measured from usage metadata. | Cost tests green (incl. parallel overshoot); measured cost per call recorded in this spec. |
-| 5 | `phase-5-cache` | Neon project and test branch, migrations, Neon stores for cache, seen-tracking, **and all shared limits** (rate limits, budget, concurrency leases), AVOID list, near-duplicate check. | Cache and limit tests green against memory store and the Neon test branch, including parallel overshoot. |
+| 5 | `phase-5-cache` | Neon project and test branch, migrations, Neon stores for cache, seen-tracking, **and all shared limits** (rate limits, budget, concurrency leases), AVOID list, near-duplicate check. **Built: shared limits. Deferred: cache, seen-tracking, AVOID list, near-duplicate check.** | Limit contract tests green against the memory store and the Neon test branch, including parallel overshoot (done). Cache tests: deferred. |
 | 6 | `phase-6-frontend` | Immersive UI per §12, error states per §13, frontend tests. | Full flow works in browser, every error kind demoed by hand. |
 | 7 | `phase-7-demo` | Vercel deploy per §15, smoke tests, README (setup, data flow, failure mode, guardrails, cost), demo script, final secret scan, push to GitHub. Rehearse the local fallback. | Smoke tests pass on the live URL; local fallback runs; control checklist in requirements.md all ticked. |
 
@@ -622,18 +624,18 @@ Inside each phase, follow the build loop: **ask → review the diff → accept �
 - **One project, two services** (`vercel.json`, [Vercel Services](https://vercel.com/docs/services)):
   - `web` (`apps/web`, Vite): static build, public at `/(.*)`.
   - `api` (`apps/api`, Hono): public at `/api/(.*)`. Entry `src/vercel.ts` default-exports the app from `wire.ts` (shared with the local `server.ts`). Vercel passes the full path (`/api/story`), which matches `basePath('/api')`.
-  - **No bindings:** the web app is static, so the browser calls `/api` on the same origin through the public rewrite. The API calls only external services (Gemini, later Neon).
-  - A bad config on Vercel doesn't crash: every `/api` route answers 503 with the "resting" message and the problem names go to the function logs. Config requires `STORE=neon` and `IP_SOURCE=vercel` there (client IP from the platform-set `x-real-ip`; `x-forwarded-for` is never read), so **until Phase 5 lands, the deployed API answers "resting".**
+  - **No bindings:** the web app is static, so the browser calls `/api` on the same origin through the public rewrite. The API calls only external services (Gemini, Neon).
+  - A bad config on Vercel doesn't crash: every `/api` route answers 503 with the "resting" message and the problem names go to the function logs. Config requires `STORE=neon` and `IP_SOURCE=vercel` there (client IP from the platform-set `x-real-ip`; `x-forwarded-for` is never read),.
 
 - **Same origin:** web and API share one domain, so `ALLOWED_ORIGIN` is the production URL and CORS stays strict.
 - **Function timeout:** Vercel's default is far longer than we need. Set `maxDuration: 30` in `vercel.json` and enforce our own 25 s deadline per request (2 attempts × 10 s plus DB time), so a hung call can't run up function time.
-- **Database:** Neon's serverless driver over HTTP with the **pooled** connection string; serverless functions open many short connections.
+- **Database:** `pg` with the **pooled** `DATABASE_URL` (one pool per instance, max 5, connects lazily); `vercel.ts` hands it to `attachDatabasePool` so idle connections close before an instance suspends. Migrations use `DATABASE_URL_UNPOOLED` (`node --env-file=../../.env scripts/migrate.ts` in `apps/api`). Production branch migrated 2026-10-22.
 - **Security headers** in `vercel.json`: CSP (`default-src 'self'`, no inline scripts or styles, `img-src 'self' data:` for the select chevron, `connect-src 'self'`; checked against the production build in a real browser with no violations), `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `frame-ancestors 'none'`.
 - **Environments:**
 
   | Vercel environment | `GEMINI_API_KEY` | `AI_ENABLED` | `STORE` | Neon branch |
   | --- | --- | --- | --- | --- |
-  | Production | real key (free tier) | `true` | `neon` | main |
+  | Production | real key (free tier) | `true` | `neon` | `production` |
   | Preview | none, or a separate key with tiny caps | `false` | `neon` | preview/dev branch |
   | Development (`vercel env pull` → `.env.local`, git-ignored) | dev key | `true` | `memory` or `neon` | dev branch |
 
