@@ -34,3 +34,4 @@ Thumbs.db
 
 # AI agent worktrees
 .claude/worktrees/
+.neon

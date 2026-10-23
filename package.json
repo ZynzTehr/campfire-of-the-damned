@@ -21,5 +21,9 @@
   },
   "engines": {
     "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "@neon/config": "catalog:",
+    "@neon/env": "catalog:"
   }
 }
