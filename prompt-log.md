@@ -281,3 +281,16 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   3. My first mutation script for the reserve lock was garbled, so I skipped that mutation and redid it cleanly (caught).
   4. I stopped the API server at the same moment as a request loop, which cut off two requests. The orphaned lease stayed held until its 30 s expiry: an accidental demonstration that a crashed request can't hold a slot forever.
   5. My config and wiring tests used fake database URLs with a username and password in them. The secret scan blocked the commit (it matches any URL with credentials). Switched to credential-free fakes; the scan stays strict. (Writing the URL shape into this entry tripped the scan a second time.)
+
+### Entry 18
+
+- **Timestamp:** 2026-10-22 18:02:30
+- **Prompt:**
+  > Deployed to Vercel but got `TypeError: Cannot read properties of undefined (reading 'readFile') at doTypeCheck ... @vercel/backends/dist/index.mjs:975:57 ... Using TypeScript 7.0.2 (local user-provided)`.
+- **Goal:** Fix Vercel's backend builder failure on TypeScript 7.x compiler API changes.
+- **Action Taken:**
+  - Diagnosed that `@vercel/backends` typecheck expects the legacy `ts.sys.readFile` API, which changed in TypeScript 7.x.
+  - Aligned the catalog's TypeScript dependency in `pnpm-workspace.yaml` to `~6.0.3` (which matches `apps/web`).
+  - Ran `pnpm install`, verified clean `tsc` and 467/467 passing API tests, 44/44 web tests, and full monorepo build.
+- **Mistakes caught in my own work:**
+  - The API had been pinned to TypeScript 7.0.2 via the catalog while `apps/web` was on 6.0.3; harmonizing on 6.0.3 resolves the Vercel builder incompatibility.
