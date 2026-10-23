@@ -79,6 +79,23 @@ describe('App: telling a tale', () => {
     expect(screen.getByRole('img', { name: 'Spook factor 4 of 5' })).toBeInTheDocument()
   })
 
+  it('allows rating a tale and includes the rating in the next request', async () => {
+    const t = setup()
+    await submitWords(t, 'crow')
+    expect(await screen.findByRole('heading', { name: story.title })).toBeInTheDocument()
+
+    const skullButton = screen.getByRole('button', { name: 'Rate 2 of 5 skulls' })
+    fireEvent.click(skullButton)
+
+    expect(screen.getByText(/Mild chills/i)).toBeInTheDocument()
+    expect(screen.getByText('Your Rating:')).toBeInTheDocument()
+
+    // Dismiss or enter new words and submit next tale
+    await submitWords(t, 'spider')
+    const secondCall = JSON.parse(t.fetchMock.mock.calls[1]![1].body as string)
+    expect(secondCall).toMatchObject({ words: ['spider'], lastRating: 2 })
+  })
+
   it('sends a stable client id kept in localStorage', async () => {
     const t = setup()
     await submitWords(t, 'crow')

@@ -25,6 +25,7 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
   const [language, setLanguage] = useState<LanguageId>('en')
   const [words, setWords] = useState(['', '', ''])
   const [badWords, setBadWords] = useState<boolean[]>([false, false, false])
+  const [lastRating, setLastRating] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [mood, setMood] = useState<Mood>('idle')
   const [story, setStory] = useState<Story | null>(null)
@@ -73,7 +74,15 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
       setBusy(true)
       setMood('flare')
       setNotice(null)
-      const out = await requestStory({ setting, language, words: filled }, { fetch: fetchImpl, clientId: getClientId() })
+      const out = await requestStory(
+        {
+          setting,
+          language,
+          words: filled,
+          ...(lastRating !== null ? { lastRating } : {}),
+        },
+        { fetch: fetchImpl, clientId: getClientId() },
+      )
       setBusy(false)
       if (out.kind === 'story') {
         setStory(out.story)
@@ -85,7 +94,7 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
       setNotice({ tone, text: out.message })
       if (out.kind === 'rate_limited') setWait({ seconds: out.retryAfterSeconds, at: Date.now() })
     },
-    [busy, left, words, setting, language, fetchImpl],
+    [busy, left, words, setting, language, fetchImpl, lastRating],
   )
 
   const hue = SETTINGS.find((s) => s.id === setting)!.hue
@@ -118,7 +127,7 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
 
         <div className="stage mt-8 w-full flex-1">
           <div className="stage__tale-wrap">
-            <Tale story={story} animate={!reducedMotion} onReset={onReset} />
+            <Tale story={story} animate={!reducedMotion} onReset={onReset} onRate={setLastRating} />
           </div>
           <div className="stage__fire-wrap">
             <Fire />

@@ -430,3 +430,19 @@ Local prompt history and build log for tracking iterations, model calls, decisio
   - Explored two model steering architectures:
     - Session-level dynamic calibration: Passing the user's previous rating on the next generation so the Campfire Keeper immediately reacts to whether the reader wanted more or less dread.
     - Global benchmark library: Storing user ratings in Neon Postgres and injecting 5-star community favorites as few-shot exemplars in the prompt.
+
+---
+
+## Entry 30
+
+- **Prompt:**
+  > Yes, create a branch for this. I'll test it when we're done; if it satisfies criteria, we'll merge it and move on towards the presentation script.
+- **Goal:** Implement human-in-the-loop story rating on an isolated feature branch (`feat/user-story-ratings`), dynamically feeding reader feedback back to the model while maintaining strict token limits and test coverage.
+- **Action Taken:**
+  - Created and checked out feature branch `feat/user-story-ratings`.
+  - Updated backend API validation (`story.ts`, `guards/input.ts`, `app.ts`) to accept and validate optional `lastRating` (integer 1–5).
+  - Expanded system prompt orders with concise Rule 11 and user turn serialization for listener feedback calibration while staying strictly within the 900-token prompt budget.
+  - Enhanced front-end `Tale.tsx` and `app.css` with interactive skull rating buttons, hover previews, and reactive gothic verdicts.
+  - Wired `lastRating` state in `App.tsx` and `api.ts` to automatically supply the previous score to the next story generation.
+  - Added comprehensive unit tests in `story.test.ts`, `systemPrompt.test.ts`, and `App.test.tsx`, achieving 100% green test suite (519 tests passing).
+

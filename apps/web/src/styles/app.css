@@ -547,6 +547,12 @@
   transform: none;
 }
 
+.parchment__spook-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .parchment__spook-label {
   font-size: 0.84rem;
   font-weight: 500;
@@ -558,24 +564,68 @@
 .parchment__skulls {
   display: flex;
   gap: 0.35rem;
+  align-items: center;
+}
+
+.skull-btn {
+  background: transparent;
+  border: none;
+  padding: 2px 3px;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.skull-btn:hover,
+.skull-btn:focus-visible {
+  transform: scale(1.22);
+}
+
+.skull-btn:focus-visible {
+  outline: 2px solid var(--color-flame);
+  outline-offset: 2px;
+}
+
+.skull-btn--selected .skull {
+  filter: drop-shadow(0 0 8px rgb(255 198 92 / 0.9));
+}
+
+.parchment__verdict {
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-style: italic;
+  color: #ffd27a;
+  letter-spacing: 0.02em;
+  margin: 0;
+  animation: fadeIn 0.3s ease-out both;
 }
 
 .skull {
   width: 22px;
   height: 22px;
   fill: rgb(94 107 110 / 0.5);
+  transition: fill 0.2s ease, filter 0.2s ease;
 }
 .skull--lit {
   fill: var(--color-flame);
   filter: drop-shadow(0 0 5px rgb(255 198 92 / 0.6));
 }
-.parchment[data-done='true'] .skull--lit {
+.parchment[data-done='true'] .skull--lit,
+.parchment[data-done='true'] .skull-btn .skull--lit {
   animation: kindle 0.5s var(--ease-out) both;
 }
-.parchment[data-done='true'] .skull--lit:nth-child(2) { animation-delay: 0.08s; }
-.parchment[data-done='true'] .skull--lit:nth-child(3) { animation-delay: 0.16s; }
-.parchment[data-done='true'] .skull--lit:nth-child(4) { animation-delay: 0.24s; }
-.parchment[data-done='true'] .skull--lit:nth-child(5) { animation-delay: 0.32s; }
+.parchment[data-done='true'] .skull--lit:nth-child(2),
+.parchment[data-done='true'] .skull-btn:nth-child(2) .skull--lit { animation-delay: 0.08s; }
+.parchment[data-done='true'] .skull--lit:nth-child(3),
+.parchment[data-done='true'] .skull-btn:nth-child(3) .skull--lit { animation-delay: 0.16s; }
+.parchment[data-done='true'] .skull--lit:nth-child(4),
+.parchment[data-done='true'] .skull-btn:nth-child(4) .skull--lit { animation-delay: 0.24s; }
+.parchment[data-done='true'] .skull--lit:nth-child(5),
+.parchment[data-done='true'] .skull-btn:nth-child(5) .skull--lit { animation-delay: 0.32s; }
 
 .rekindle-btn {
   display: inline-flex;

@@ -46,6 +46,12 @@ describe('POST /api/story: happy path', () => {
     expect(ai.calls[0]!.language).toBe('es')
   })
 
+  it('forwards lastRating to the AI prompt input when provided', async () => {
+    const { ai, post } = setup()
+    await post({ ...goodRequest, lastRating: 3 })
+    expect(ai.calls[0]!).toMatchObject({ lastRating: 3 })
+  })
+
   it('does not expose internal fields (tampering, ingredients, usage)', async () => {
     const { post } = setup()
     const text = await (await post(goodRequest)).text()
@@ -71,6 +77,9 @@ describe('POST /api/story: bad requests never reach the AI', () => {
     ['extra key', { ...goodRequest, admin: true }],
     ['__proto__ key', '{"setting":"haunted-attic","words":["fog"],"__proto__":{"admin":true}}'],
     ['bad clientId', { ...goodRequest, clientId: 'not-a-uuid' }],
+    ['lastRating 0', { ...goodRequest, lastRating: 0 }],
+    ['lastRating 6', { ...goodRequest, lastRating: 6 }],
+    ['lastRating float', { ...goodRequest, lastRating: 3.5 }],
   ])('%s → 400 invalid, AI not called', async (_name, body) => {
     const { ai, post } = setup()
     const res = await post(body)

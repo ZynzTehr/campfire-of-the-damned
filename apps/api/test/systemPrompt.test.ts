@@ -91,4 +91,15 @@ describe('buildUserTurn', () => {
     buildUserTurn({ ...base, words })
     expect(words).toEqual(['b', 'a'])
   })
+
+  it('appends FEEDBACK line when lastRating is provided', () => {
+    const turn = buildUserTurn({ ...base, words: ['fog'], lastRating: 2 })
+    expect(turn).toContain('FEEDBACK (listener rating of previous tale, 1-5 skulls): 2')
+  })
+
+  it('omits FEEDBACK line when lastRating is not provided', () => {
+    const turn = buildUserTurn({ ...base, words: ['fog'] })
+    expect(turn).not.toContain('FEEDBACK')
+  })
 })
+

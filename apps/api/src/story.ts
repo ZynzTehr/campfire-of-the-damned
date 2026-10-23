@@ -27,6 +27,7 @@ export const StoryRequest = z
     language: z.enum(LANGUAGES).default('en'),
     words: z.array(z.string().regex(WORD_REGEX)).min(1).max(3),
     clientId: z.uuid({ version: 'v4' }).optional(),
+    lastRating: z.number().int().min(1).max(5).optional(),
   })
   .strict()
 export type StoryRequest = z.infer<typeof StoryRequest>

@@ -4,6 +4,7 @@ export interface StoryRequest {
   setting: SettingId
   language: LanguageId
   words: string[]
+  lastRating?: number
 }
 
 export interface Story {

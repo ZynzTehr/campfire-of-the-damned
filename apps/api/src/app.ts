@@ -82,8 +82,8 @@ export function createApp(deps: AppDeps) {
       const client = await deps.cost.allowClient(deps.clientIp(c))
       if (!client.ok) return rateLimited(c, client.retryAfterSeconds)
 
-      const { setting, language, words } = input.value
-      const prompt = { setting, language, words, avoid: [] }
+      const { setting, language, words, lastRating } = input.value
+      const prompt = { setting, language, words, avoid: [], ...(lastRating !== undefined ? { lastRating } : {}) }
       const promptText = `${deps.systemPrompt}\n${buildUserTurn(prompt)}`
       const guardCtx = { words, language, canary: deps.canary, systemPrompt: deps.systemPrompt }
       const deadline = AbortSignal.timeout(deadlineMs)

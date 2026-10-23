@@ -6,6 +6,7 @@ export interface CleanRequest {
   language: Language
   words: string[]
   clientId?: string
+  lastRating?: number
 }
 
 export type InputResult =
@@ -23,6 +24,7 @@ const RawRequest = z
     language: z.enum(LANGUAGES).default('en'),
     words: z.array(z.string().max(64)).min(1).max(3),
     clientId: z.uuid({ version: 'v4' }).optional(),
+    lastRating: z.number().int().min(1).max(5).optional(),
   })
   .strict()
 
@@ -80,7 +82,7 @@ export function checkInput(body: unknown): InputResult {
   const parsed = RawRequest.safeParse(body)
   if (!parsed.success) return { ok: false, kind: 'invalid', reason: 'shape' }
 
-  const { setting, language, clientId } = parsed.data
+  const { setting, language, clientId, lastRating } = parsed.data
   const words = parsed.data.words.map(normalizeWord)
 
   if (words.some((w) => MARKUP.test(w))) return { ok: false, kind: 'rejected', reason: 'markup' }
@@ -97,5 +99,14 @@ export function checkInput(body: unknown): InputResult {
 
   if (!words.every((w) => WORD_REGEX.test(w))) return { ok: false, kind: 'invalid', reason: 'word_format' }
 
-  return { ok: true, value: { setting, language, words, ...(clientId ? { clientId } : {}) } }
+  return {
+    ok: true,
+    value: {
+      setting,
+      language,
+      words,
+      ...(clientId ? { clientId } : {}),
+      ...(lastRating !== undefined ? { lastRating } : {}),
+    },
+  }
 }
