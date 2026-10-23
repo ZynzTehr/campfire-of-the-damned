@@ -7,6 +7,7 @@
     "ready": "vp check && vp run -r test && vp run -r build",
     "dev": "vp run -r --parallel dev",
     "test": "vp run -r test",
+    "migrate": "pnpm --filter api migrate",
     "scan:secrets": "./scripts/scan-secrets.sh"
   },
   "devDependencies": {

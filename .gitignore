@@ -35,3 +35,6 @@ Thumbs.db
 # AI agent worktrees
 .claude/worktrees/
 .neon
+
+# Local notes & briefs
+requirements.md
