@@ -111,6 +111,20 @@ describe('App: telling a tale', () => {
     expect(typed).toHaveAttribute('aria-hidden', 'true')
     expect(typed.textContent!.length).toBeLessThan(story.body.length)
   })
+
+  it('allows rekindling the fire to dismiss the tale and return to the campfire', async () => {
+    setReducedMotion(true)
+    const t = setup()
+    await submitWords(t, 'crow')
+    expect(await screen.findByRole('heading', { name: story.title })).toBeInTheDocument()
+
+    const rekindle = screen.getByRole('button', { name: /rekindle the fire/i })
+    expect(rekindle).toBeInTheDocument()
+    fireEvent.click(rekindle)
+
+    expect(screen.queryByRole('heading', { name: story.title })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /tell the tale/i })).toBeInTheDocument()
+  })
 })
 
 describe('App: problems are shown in the scene, never as a blank page', () => {

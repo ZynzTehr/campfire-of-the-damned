@@ -28,6 +28,7 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
   const [busy, setBusy] = useState(false)
   const [mood, setMood] = useState<Mood>('idle')
   const [story, setStory] = useState<Story | null>(null)
+  const [isDismissing, setIsDismissing] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [wait, setWait] = useState({ seconds: 0, at: 0 })
   const left = useCountdown(wait.seconds, wait.at)
@@ -36,6 +37,18 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
 
   const scene = useRef<HTMLDivElement>(null)
   useParallax(scene, reducedMotion)
+
+  const onReset = useCallback(() => {
+    if (reducedMotion) {
+      setStory(null)
+      return
+    }
+    setIsDismissing(true)
+    setTimeout(() => {
+      setStory(null)
+      setIsDismissing(false)
+    }, 480)
+  }, [reducedMotion])
 
   useEffect(() => {
     if (left === 0 && mood === 'smoulder') setMood('idle')
@@ -79,7 +92,14 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
   const buttonLabel = busy ? 'The fire is listening…' : left > 0 ? `Wait ${left} s` : 'Tell the tale'
 
   return (
-    <div ref={scene} className="scene" data-mood={mood} data-setting={setting} style={{ '--hue': hue } as React.CSSProperties}>
+    <div
+      ref={scene}
+      className="scene"
+      data-mood={mood}
+      data-setting={setting}
+      data-story-active={Boolean(story) && !isDismissing}
+      style={{ '--hue': hue } as React.CSSProperties}
+    >
       <div className="scene__sky" aria-hidden="true" />
       <Treeline className="scene__trees scene__trees--far" seed={7} height={220} />
       <div className="scene__fog scene__fog--back" aria-hidden="true" />
@@ -96,17 +116,22 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
           <SoundToggle />
         </header>
 
-        <div className="mt-8 flex w-full flex-1 flex-col items-center justify-end gap-2">
-          <Tale story={story} animate={!reducedMotion} />
-          <Fire />
-          <p role="status" className="notice" data-tone={notice?.tone ?? 'none'}>
-            {notice?.tone === 'rejected' && <Eye />}
-            {notice?.tone === 'rate_limited' && <Hourglass />}
-            <span>{notice?.text ?? ''}</span>
-          </p>
+        <div className="stage mt-8 w-full flex-1">
+          <div className="stage__tale-wrap">
+            <Tale story={story} animate={!reducedMotion} onReset={onReset} />
+          </div>
+          <div className="stage__fire-wrap">
+            <Fire />
+            <p role="status" className="notice" data-tone={notice?.tone ?? 'none'}>
+              {notice?.tone === 'rejected' && <Eye />}
+              {notice?.tone === 'rate_limited' && <Hourglass />}
+              <span>{notice?.text ?? ''}</span>
+            </p>
+          </div>
         </div>
 
-        <form className="ritual mt-6 flex w-full flex-col gap-6" onSubmit={onSubmit} noValidate>
+        <div className="ritual-drawer">
+          <form className="ritual mt-6 flex w-full flex-col gap-6" onSubmit={onSubmit} noValidate>
           <div role="radiogroup" aria-labelledby="where" className="flex flex-col gap-3">
             <span id="where" className="ritual__label">
               Where are we sitting?
@@ -173,6 +198,7 @@ export default function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
             </button>
           </div>
         </form>
+        </div>
       </div>
     </div>
   )

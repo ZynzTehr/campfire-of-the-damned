@@ -45,6 +45,12 @@
   --ember-show: 0.35;
   --smoke-show: 0.5;
 }
+.scene[data-story-active='true'] {
+  --fire-size: 0.2;
+  --glow: 0.15;
+  --ember-show: 0.2;
+  --smoke-show: 0.8;
+}
 
 /* ---------- Scene ---------- */
 .scene {
@@ -166,6 +172,67 @@
   color: var(--color-bone-dim);
 }
 
+/* ---------- Stage & Fire transition ---------- */
+.stage {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-areas: 'stage-view';
+  place-items: center;
+  min-height: 270px;
+  transition: min-height 0.85s var(--ease-out);
+}
+.scene[data-story-active='true'] .stage {
+  min-height: 52vh;
+}
+
+.stage__fire-wrap {
+  grid-area: stage-view;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0px);
+  pointer-events: auto;
+  transition:
+    opacity 0.65s var(--ease-out),
+    transform 0.75s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.65s var(--ease-out);
+}
+
+.scene[data-story-active='true'] .stage__fire-wrap {
+  opacity: 0;
+  transform: translateY(28px) scale(0.7);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.stage__tale-wrap {
+  grid-area: stage-view;
+  width: 100%;
+  opacity: 0;
+  transform: translateY(32px) scale(0.96);
+  filter: blur(6px);
+  pointer-events: none;
+  transition:
+    opacity 0.45s var(--ease-out),
+    transform 0.45s var(--ease-out),
+    filter 0.45s var(--ease-out);
+}
+
+.scene[data-story-active='true'] .stage__tale-wrap {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0px);
+  pointer-events: auto;
+  transition:
+    opacity 0.85s 0.2s var(--ease-out),
+    transform 0.85s 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.75s 0.2s var(--ease-out);
+}
+
 /* ---------- Fire ---------- */
 .fire {
   position: relative;
@@ -175,19 +242,45 @@
   pointer-events: none;
 }
 
+/* Dedicated flat ground illumination sitting beneath the wood logs and pit */
+.fire__ground-glow {
+  position: absolute;
+  left: 50%;
+  bottom: -16px;
+  width: 380px;
+  height: 52px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse 60% 50% at 50% 50%,
+    rgb(var(--glow-rgb) / 0.65),
+    rgb(var(--glow-rgb) / 0.26) 45%,
+    rgb(var(--glow-rgb) / 0.08) 75%,
+    transparent 100%
+  );
+  filter: blur(8px);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--glow);
+  animation: breathe calc(2.4s * var(--tempo)) ease-in-out infinite alternate;
+  transition: opacity 0.9s var(--ease-out), background 0.9s;
+}
+
+/* Ambient air aura warming the darkness above and around the flames */
 .fire__glow {
   position: absolute;
   left: 50%;
-  bottom: 10px;
-  width: 640px;
-  height: 520px;
-  translate: -50% 40%;
+  bottom: 24px;
+  width: 580px;
+  height: 480px;
+  translate: -50% 15%;
   z-index: -1;
   border-radius: 50%;
-  background: radial-gradient(closest-side, rgb(var(--glow-rgb) / 0.55), rgb(var(--glow-rgb) / 0.12) 55%, transparent);
+  background: radial-gradient(closest-side, rgb(var(--glow-rgb) / 0.45), rgb(var(--glow-rgb) / 0.12) 55%, transparent);
   opacity: var(--glow);
   mix-blend-mode: screen;
-  animation: breathe calc(2.8s * var(--tempo)) ease-in-out infinite alternate;
+  animation: breathe calc(3.1s * var(--tempo)) ease-in-out infinite alternate;
   transition: opacity 0.9s var(--ease-out), background 0.9s;
 }
 
@@ -320,6 +413,7 @@
   width: 220px;
   translate: -50% 0;
   overflow: visible;
+  z-index: 1;
 }
 .fire__logs rect {
   fill: #2a1a11;
@@ -328,69 +422,142 @@
 }
 .fire__coals {
   fill: rgb(var(--glow-rgb));
-  opacity: 0.45;
+  opacity: 0.55;
+  filter: drop-shadow(0 0 4px rgb(var(--glow-rgb) / 0.7));
   animation: coals calc(2.2s * var(--tempo)) ease-in-out infinite alternate;
+}
+.fire__coals--core {
+  opacity: 0.85;
+  fill: #fff0d0;
+  filter: drop-shadow(0 0 6px rgb(var(--glow-rgb)));
+  animation: coals calc(1.8s * var(--tempo)) ease-in-out infinite alternate;
 }
 
 /* ---------- The tale ---------- */
 .tale {
   width: 100%;
-  max-width: 40rem;
+  max-width: 42rem;
+  margin: 0 auto;
 }
+
 .parchment {
   position: relative;
-  padding: 1.5rem 1.75rem 1.25rem;
-  border: 1px solid var(--line);
-  border-radius: 16px;
+  padding: 2.2rem 2.4rem 1.8rem;
+  border: 1px solid rgb(232 116 43 / 0.3);
+  border-radius: 20px;
   background:
-    radial-gradient(ellipse 90% 60% at 50% 120%, rgb(var(--glow-rgb) / 0.14), transparent 70%),
-    linear-gradient(180deg, rgb(18 28 32 / 0.78), rgb(9 16 20 / 0.66));
-  backdrop-filter: blur(6px);
+    radial-gradient(ellipse 90% 60% at 50% 0%, rgb(232 116 43 / 0.12), transparent 70%),
+    radial-gradient(circle at 100% 100%, rgb(18 12 10 / 0.8), transparent 50%),
+    linear-gradient(180deg, rgb(16 20 23 / 0.94), rgb(7 10 12 / 0.96));
+  backdrop-filter: blur(14px);
   box-shadow:
-    0 1px 0 rgb(232 220 196 / 0.06) inset,
-    0 30px 60px -30px rgb(0 0 0 / 0.9);
-  animation: surface 0.9s var(--ease-out) both;
+    0 0 0 1px rgb(232 220 196 / 0.05) inset,
+    0 1px 0 rgb(255 198 92 / 0.18) inset,
+    0 30px 80px -20px rgb(0 0 0 / 0.95),
+    0 0 50px -15px rgb(232 116 43 / 0.25);
 }
+@media (max-width: 640px) {
+  .parchment {
+    padding: 1.5rem 1.35rem 1.25rem;
+  }
+}
+
+.parchment__header {
+  margin-bottom: 1rem;
+}
+
+.parchment__badge {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-ember);
+  opacity: 0.9;
+  margin-bottom: 0.5rem;
+  text-shadow: 0 0 12px rgb(232 116 43 / 0.5);
+}
+
 .parchment__title {
-  margin: 0 0 0.6rem;
+  margin: 0;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(1.45rem, 3.6vw, 1.9rem);
+  font-size: clamp(1.65rem, 4.2vw, 2.25rem);
   line-height: 1.15;
-  color: var(--color-flame);
-  text-shadow: 0 0 22px rgb(232 116 43 / 0.45);
+  letter-spacing: -0.01em;
+  color: #ffc65c;
+  text-shadow:
+    0 0 1px rgb(255 244 214 / 0.7),
+    0 0 28px rgb(232 116 43 / 0.5);
 }
+
+.parchment__content {
+  position: relative;
+}
+
 .parchment__body {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.08rem, 2.4vw, 1.24rem);
-  line-height: 1.62;
+  font-size: clamp(1.15rem, 2.6vw, 1.35rem);
+  line-height: 1.75;
+  letter-spacing: 0.01em;
   color: var(--color-bone);
   cursor: default;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
 }
-.parchment[data-done='false'] .parchment__body {
+
+.parchment[data-done='false'] .parchment__content {
   cursor: pointer;
 }
+
 .parchment__nib {
   display: inline-block;
-  width: 0.42em;
-  height: 0.42em;
-  margin-left: 0.15em;
+  width: 0.44em;
+  height: 0.44em;
+  margin-left: 0.2em;
   border-radius: 50%;
   background: var(--color-ember);
-  box-shadow: 0 0 10px 2px rgb(232 116 43 / 0.8);
-  vertical-align: 0.05em;
-  animation: nib 0.9s ease-in-out infinite;
+  box-shadow: 0 0 12px 3px rgb(232 116 43 / 0.9), 0 0 2px 1px #fff;
+  vertical-align: 0.08em;
+  animation: nib 0.75s ease-in-out infinite;
 }
+
+.parchment__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.6rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid rgb(232 220 196 / 0.08);
+}
+
 .parchment__spook {
   display: flex;
-  gap: 0.3rem;
-  margin-top: 1rem;
+  align-items: center;
+  gap: 0.6rem;
   opacity: 0;
-  transition: opacity 0.6s var(--ease-out);
+  transform: translateY(6px);
+  transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
 }
 .parchment[data-done='true'] .parchment__spook {
   opacity: 1;
+  transform: none;
+}
+
+.parchment__spook-label {
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-bone-dim);
+}
+
+.parchment__skulls {
+  display: flex;
+  gap: 0.35rem;
 }
 
 .skull {
@@ -409,6 +576,61 @@
 .parchment[data-done='true'] .skull--lit:nth-child(3) { animation-delay: 0.16s; }
 .parchment[data-done='true'] .skull--lit:nth-child(4) { animation-delay: 0.24s; }
 .parchment[data-done='true'] .skull--lit:nth-child(5) { animation-delay: 0.32s; }
+
+.rekindle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.75rem;
+  padding: 0.6rem 1.4rem;
+  border: 1px solid rgb(232 116 43 / 0.5);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(38 24 16 / 0.95), rgb(20 12 8 / 0.95));
+  color: #ffd27a;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.5s var(--ease-out),
+    transform 0.5s var(--ease-out),
+    border-color 0.25s,
+    background 0.25s,
+    box-shadow 0.25s;
+  box-shadow:
+    0 1px 0 rgb(255 198 92 / 0.15) inset,
+    0 8px 24px -6px rgb(0 0 0 / 0.7);
+}
+.parchment[data-done='true'] .rekindle-btn {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  animation: surface 0.5s var(--ease-out) both;
+}
+.rekindle-btn:hover {
+  border-color: var(--color-flame);
+  background: linear-gradient(180deg, rgb(52 30 18 / 0.95), rgb(28 16 10 / 0.95));
+  color: #ffe6aa;
+  box-shadow:
+    0 1px 0 rgb(255 244 214 / 0.3) inset,
+    0 0 20px 2px rgb(232 116 43 / 0.4),
+    0 10px 28px -6px rgb(0 0 0 / 0.85);
+  transform: translateY(-2px);
+}
+.rekindle-btn:active {
+  transform: translateY(0);
+  filter: brightness(0.95);
+}
+.rekindle-btn:focus-visible {
+  outline: 2px solid var(--color-flame);
+  outline-offset: 3px;
+}
+.rekindle-btn__flame {
+  font-size: 1.15rem;
+  filter: drop-shadow(0 0 6px rgb(232 116 43 / 0.8));
+}
 
 /* ---------- Notice ---------- */
 .notice {
@@ -456,10 +678,44 @@
   fill: currentColor;
 }
 
-/* ---------- Ritual (form) ---------- */
+/* ---------- Ritual Drawer & Form ---------- */
+.ritual-drawer {
+  display: grid;
+  grid-template-rows: 1fr;
+  width: 100%;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    grid-template-rows 0.75s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.55s var(--ease-out),
+    transform 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ritual-drawer > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scene[data-story-active='true'] .ritual-drawer {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+}
+
 .ritual {
   padding-top: 1.5rem;
   border-top: 1px solid var(--line);
+  transition: border-color 0.4s var(--ease-out);
+}
+
+.scene[data-story-active='true'] .ritual {
+  border-top-color: transparent;
+}
+
+.scene[data-story-active='true'] .lede {
+  opacity: 0.35;
+  transition: opacity 0.6s var(--ease-out);
 }
 .ritual fieldset {
   margin: 0;
@@ -707,6 +963,18 @@
 @keyframes twinkle {
   from { opacity: 0.55; }
   to { opacity: 1; }
+}
+@keyframes tale-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.97);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
 }
 @keyframes surface {
   from { opacity: 0; transform: translateY(10px); filter: blur(4px); }

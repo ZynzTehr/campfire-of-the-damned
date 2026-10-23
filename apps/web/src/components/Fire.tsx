@@ -16,6 +16,7 @@ export function Fire() {
   )
   return (
     <div className="fire" aria-hidden="true">
+      <div className="fire__ground-glow" />
       <div className="fire__glow" />
       <div className="fire__smoke">
         <span />
@@ -38,9 +39,10 @@ export function Fire() {
         ))}
       </div>
       <svg className="fire__logs" viewBox="0 0 240 60">
+        <ellipse cx="120" cy="52" rx="98" ry="7" className="fire__coals" />
+        <ellipse cx="120" cy="38" rx="36" ry="5" className="fire__coals fire__coals--core" />
         <rect x="18" y="22" width="204" height="22" rx="11" transform="rotate(-9 120 33)" />
         <rect x="18" y="22" width="204" height="22" rx="11" transform="rotate(9 120 33)" />
-        <ellipse cx="120" cy="46" rx="96" ry="9" className="fire__coals" />
       </svg>
     </div>
   )

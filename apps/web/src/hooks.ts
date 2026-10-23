@@ -34,27 +34,53 @@ export function useCountdown(seconds: number, key: unknown): number {
   return left
 }
 
-/** Reveals text a few characters at a time, like ink soaking into paper. */
-export function useTypewriter(text: string, enabled: boolean): { shown: string; finish: () => void } {
+/** Reveals text with deliberate horror pacing, pausing on punctuation for tension. */
+export function useTypewriter(text: string, enabled: boolean): { shown: string; finish: () => void; isDone: boolean } {
   const [count, setCount] = useState(enabled ? 0 : text.length)
+
   useEffect(() => {
     if (!enabled) {
       setCount(text.length)
       return
     }
     setCount(0)
-    const id = setInterval(() => {
-      setCount((n) => {
-        if (n >= text.length) {
-          clearInterval(id)
-          return n
-        }
-        return n + 2
-      })
-    }, 24)
-    return () => clearInterval(id)
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    function step(current: number) {
+      if (current >= text.length) return
+
+      const next = current + 1
+      setCount(next)
+
+      if (next >= text.length) return
+
+      const char = text[current]
+      let delay = 44
+
+      if (char === '.' || char === '!' || char === '?') {
+        delay = 480
+      } else if (char === '…' || char === '—') {
+        delay = 580
+      } else if (char === ',' || char === ';' || char === ':') {
+        delay = 200
+      }
+
+      timer = setTimeout(() => step(next), delay)
+    }
+
+    timer = setTimeout(() => step(0), 100)
+
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
   }, [text, enabled])
-  return { shown: text.slice(0, count), finish: () => setCount(text.length) }
+
+  return {
+    shown: text.slice(0, count),
+    finish: () => setCount(text.length),
+    isDone: count >= text.length,
+  }
 }
 
 /** Pauses every CSS animation while the tab is hidden (SPEC §12: effects pause when hidden). */
