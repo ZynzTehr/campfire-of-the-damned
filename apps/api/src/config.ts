@@ -25,7 +25,9 @@ export interface Config {
   geminiApiKey: string
   geminiModel: string
   ipSource: 'socket' | 'vercel'
-  store: 'memory'
+  store: 'memory' | 'neon'
+  /** Pooled Neon URL; set only when store is neon. */
+  databaseUrl?: string
   port: number
   cost: CostConfig
 }
@@ -108,11 +110,12 @@ export function loadConfig(env: Env): Config {
   }
   if (env.VERCEL && store !== 'neon') problems.push('STORE must be neon on Vercel (in-memory limits reset per instance)')
   if (env.VERCEL && ipSource !== 'vercel') problems.push('IP_SOURCE must be vercel on Vercel (the socket address is the platform proxy)')
-  if (store === 'neon') problems.push('STORE=neon is not available yet (Phase 5); use STORE=memory locally')
+  const databaseUrl = env.DATABASE_URL?.trim()
+  if (store === 'neon' && !databaseUrl) problems.push('DATABASE_URL is required when STORE=neon')
 
   if (problems.length) throw new ConfigError(problems)
 
-  return { geminiApiKey, geminiModel, ipSource, store: 'memory', port: Number(env.PORT ?? 8787), cost }
+  return { geminiApiKey, geminiModel, ipSource, store, ...(store === 'neon' ? { databaseUrl } : {}), port: Number(env.PORT ?? 8787), cost }
 }
 
 /** Worst case for one call: a full prompt and a full output at paid prices. */

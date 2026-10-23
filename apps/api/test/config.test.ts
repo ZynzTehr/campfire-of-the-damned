@@ -102,6 +102,23 @@ describe('loadConfig fails closed: a typo stops the app, it never removes a limi
     expect(problemsFor({ ...VALID_ENV, VERCEL: '1' }).join('\n')).toMatch(/STORE/)
   })
 
+  it('STORE=neon without DATABASE_URL → refuses (no shared store means no shared limits)', () => {
+    expect(problemsFor({ ...VALID_ENV, STORE: 'neon' }).join('\n')).toContain('DATABASE_URL is required when STORE=neon')
+    expect(problemsFor({ ...VALID_ENV, STORE: 'neon', DATABASE_URL: '  ' }).join('\n')).toContain('DATABASE_URL')
+  })
+
+  it('STORE=neon with DATABASE_URL → accepted, and the URL is passed on', () => {
+    const c = loadConfig({ ...VALID_ENV, STORE: 'neon', DATABASE_URL: 'postgresql://fake-host/db' })
+    expect(c.store).toBe('neon')
+    expect(c.databaseUrl).toBe('postgresql://fake-host/db')
+  })
+
+  it('STORE=memory ignores DATABASE_URL (local runs never touch the database by accident)', () => {
+    const c = loadConfig({ ...VALID_ENV, DATABASE_URL: 'postgresql://fake-host/db' })
+    expect(c.store).toBe('memory')
+    expect(c.databaseUrl).toBeUndefined()
+  })
+
   it('reports every problem at once, not just the first', () => {
     expect(problemsFor({ ...VALID_ENV, DAILY_USD_CAP: 'x', MAX_OUTPUT_TOKENS: '0', AI_ENABLED: 'yes' })).toHaveLength(3)
   })

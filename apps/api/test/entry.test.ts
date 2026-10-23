@@ -82,3 +82,30 @@ describe('createVercelApp (the deployed function)', () => {
     expect(logs.join('\n')).not.toContain('sekrit-key-123')
   })
 })
+
+describe('store wiring (SPEC §8.2)', () => {
+  // Port 1 on localhost: nothing listens, and the pool only connects on its first query anyway.
+  const NEON = { ...OFF, STORE: 'neon', DATABASE_URL: 'postgresql://127.0.0.1:1/db' }
+
+  it('STORE=neon builds a Neon pool for the limits; STORE=memory builds none', async () => {
+    const neon = buildApi(NEON, { socketIp: () => 'x' })
+    expect(neon.pool).toBeDefined()
+    expect(neon.config.store).toBe('neon')
+    await neon.pool!.end()
+    expect(buildApi(OFF, { socketIp: () => 'x' }).pool).toBeUndefined()
+  })
+
+  it('the Vercel function hands the Neon pool to attachDatabasePool, once', async () => {
+    const attached: unknown[] = []
+    const app = createVercelApp({ ...NEON, IP_SOURCE: 'vercel' }, () => {}, (p) => attached.push(p))
+    expect(attached).toHaveLength(1)
+    expect((await app.request('/api/health')).status).toBe(200)
+    await (attached[0] as { end: () => Promise<void> }).end()
+  })
+
+  it('with the memory store there is no pool to attach', () => {
+    const attached: unknown[] = []
+    createVercelApp({ ...OFF, IP_SOURCE: 'vercel' }, () => {}, (p) => attached.push(p))
+    expect(attached).toHaveLength(0)
+  })
+})

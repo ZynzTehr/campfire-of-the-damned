@@ -19,7 +19,7 @@ try {
 const { app, config } = built
 const c = config.cost
 serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
-  console.log(`[api] listening on http://127.0.0.1:${info.port} (model: ${config.geminiModel}, AI ${c.aiEnabled ? 'on' : 'OFF'})`)
+  console.log(`[api] listening on http://127.0.0.1:${info.port} (model: ${config.geminiModel}, store: ${config.store}, AI ${c.aiEnabled ? 'on' : 'OFF'})`)
   console.log(
     `[api] caps: ${c.appRpmCap}/min ${c.appRpdCap}/day app-wide, ${c.perIpPerMinute}/min ${c.perIpPerHour}/h per IP, ` +
       `${c.maxConcurrentAiCalls} concurrent, $${c.dailyUsdCap}/day $${c.monthlyUsdCap}/month, worst case $${worstCaseCallUsd(c).toFixed(5)}/call`,
