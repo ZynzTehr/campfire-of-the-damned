@@ -107,6 +107,7 @@ export function loadConfig(env: Env): Config {
     problems.push('DAILY_USD_CAP is smaller than one worst-case call (it would block every call)')
   }
   if (env.VERCEL && store !== 'neon') problems.push('STORE must be neon on Vercel (in-memory limits reset per instance)')
+  if (env.VERCEL && ipSource !== 'vercel') problems.push('IP_SOURCE must be vercel on Vercel (the socket address is the platform proxy)')
   if (store === 'neon') problems.push('STORE=neon is not available yet (Phase 5); use STORE=memory locally')
 
   if (problems.length) throw new ConfigError(problems)

@@ -1,28 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vite-plus/test'
 import { ConfigError, loadConfig } from '../src/config.ts'
-
-/** A complete, valid env. Each test breaks one thing. */
-export const VALID_ENV: Record<string, string> = {
-  GEMINI_API_KEY: 'fake-test-key-not-real',
-  GEMINI_MODEL: 'gemini-3.5-flash-lite',
-  AI_ENABLED: 'true',
-  PRICE_INPUT_PER_M_USD: '0.30',
-  PRICE_OUTPUT_PER_M_USD: '2.50',
-  MAX_PROMPT_TOKENS: '900',
-  MAX_OUTPUT_TOKENS: '300',
-  MAX_CONCURRENT_AI_CALLS: '3',
-  APP_RPM_CAP: '12',
-  APP_RPD_CAP: '1000',
-  PER_IP_PER_MINUTE: '5',
-  PER_IP_PER_HOUR: '30',
-  DAILY_AI_CALL_CAP: '500',
-  DAILY_USD_CAP: '1.00',
-  MONTHLY_USD_CAP: '10.00',
-  DEGRADED_AI_CALLS_PER_HOUR: '20',
-  STORE: 'memory',
-  IP_SOURCE: 'socket',
-}
+import { VALID_ENV } from './env.ts'
 
 function problemsFor(env: Record<string, string | undefined>): string[] {
   try {
@@ -139,5 +118,14 @@ describe('.env.example documents every setting the server reads', () => {
     const example = readFileSync(new URL('../../../.env.example', import.meta.url), 'utf8')
     const keys = new Set([...example.matchAll(/^([A-Z0-9_]+)=/gm)].map((m) => m[1]))
     for (const key of Object.keys(VALID_ENV)) expect(keys, key).toContain(key)
+  })
+})
+
+describe('config: client IP source on Vercel', () => {
+  it('VERCEL with IP_SOURCE=socket → refuses (every visitor would share the proxy address)', () => {
+    expect(problemsFor({ ...VALID_ENV, VERCEL: '1', IP_SOURCE: 'socket' }).join('\n')).toMatch(/IP_SOURCE must be vercel/)
+  })
+  it('VERCEL with IP_SOURCE=vercel → no IP problem', () => {
+    expect(problemsFor({ ...VALID_ENV, VERCEL: '1', IP_SOURCE: 'vercel' }).join('\n')).not.toMatch(/IP_SOURCE/)
   })
 })
